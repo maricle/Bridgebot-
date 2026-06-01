@@ -224,14 +224,37 @@ async def recibir_mensaje(request: Request):
 async def procesar_evento(data: dict):
     """Procesa el evento de Instagram de forma asíncrona."""
     try:
-        entry = data.get("entry", [{}])[0]
-        messaging = entry.get("messaging", [{}])[0]
+        # Log completo del payload para debug
+        log.info("PAYLOAD COMPLETO: %s", str(data))
 
+        entry = data.get("entry", [{}])[0]
+
+        # Instagram puede usar "messaging" o "changes" según el tipo de evento
+        messaging_list = entry.get("messaging") or []
+        if not messaging_list:
+            # Intentar via changes
+            changes = entry.get("changes", [{}])
+            for change in changes:
+                value = change.get("value", {})
+                messages = value.get("messages", [])
+                if messages:
+                    msg = messages[0]
+                    sender_id = msg.get("from", {}).get("id") or value.get("contacts", [{}])[0].get("wa_id")
+                    mensaje = msg.get("text", {}).get("body", "")
+                    if sender_id and mensaje:
+                        messaging_list = [{"sender": {"id": sender_id}, "message": {"text": mensaje}}]
+                    break
+
+        if not messaging_list:
+            log.info("Evento sin messaging, ignorando. Entry: %s", str(entry)[:300])
+            return
+
+        messaging = messaging_list[0]
         sender_id = messaging.get("sender", {}).get("id")
         mensaje   = messaging.get("message", {}).get("text", "")
 
         if not sender_id or not mensaje:
-            log.info("Evento sin sender_id o mensaje, ignorando")
+            log.info("Evento sin sender_id o mensaje, ignorando. Messaging: %s", str(messaging)[:300])
             return
 
         log.info("Mensaje recibido de IG user=%s: %s", sender_id, mensaje[:80])
