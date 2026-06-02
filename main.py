@@ -183,6 +183,12 @@ def verificar_firma(payload: bytes, firma_header: str) -> bool:
     return hmac.compare_digest(firma_header[7:], firma_esperada)
 
 
+# ─── MODO AUTO-RESPUESTA ──────────────────────────────────────────────────────
+# Ponelo en True para verificar que el webhook funciona de punta a punta.
+# Una vez confirmado, cambialo a False para activar la lógica con Odoo/AI.
+AUTO_RESPUESTA = True
+
+
 # ─── RUTAS ────────────────────────────────────────────────────────────────────
 
 @app.get("/webhook")
@@ -221,55 +227,59 @@ async def recibir_mensaje(request: Request):
     return Response(status_code=200)
 
 
+def extraer_sender_y_mensaje(data: dict) -> tuple[str, str]:
+    """Extrae sender_id y texto del payload de Meta (Instagram DM)."""
+    entry = data.get("entry", [{}])[0]
+
+    # Formato estándar de Instagram Messaging
+    messaging_list = entry.get("messaging") or []
+    if messaging_list:
+        messaging = messaging_list[0]
+        sender_id = messaging.get("sender", {}).get("id", "")
+        mensaje   = messaging.get("message", {}).get("text", "")
+        return sender_id, mensaje
+
+    # Formato alternativo via "changes" (WhatsApp / algunas cuentas IG Business)
+    for change in entry.get("changes", []):
+        value = change.get("value", {})
+        messages = value.get("messages", [])
+        if messages:
+            msg = messages[0]
+            sender_id = (
+                msg.get("from", {}).get("id")
+                or value.get("contacts", [{}])[0].get("wa_id", "")
+            )
+            mensaje = msg.get("text", {}).get("body", "")
+            return sender_id, mensaje
+
+    return "", ""
+
+
 async def procesar_evento(data: dict):
     """Procesa el evento de Instagram de forma asíncrona."""
     try:
-        # Log completo del payload para debug
         log.info("PAYLOAD COMPLETO: %s", str(data))
 
-        entry = data.get("entry", [{}])[0]
-
-        # Instagram puede usar "messaging" o "changes" según el tipo de evento
-        messaging_list = entry.get("messaging") or []
-        if not messaging_list:
-            # Intentar via changes
-            changes = entry.get("changes", [{}])
-            for change in changes:
-                value = change.get("value", {})
-                messages = value.get("messages", [])
-                if messages:
-                    msg = messages[0]
-                    sender_id = msg.get("from", {}).get("id") or value.get("contacts", [{}])[0].get("wa_id")
-                    mensaje = msg.get("text", {}).get("body", "")
-                    if sender_id and mensaje:
-                        messaging_list = [{"sender": {"id": sender_id}, "message": {"text": mensaje}}]
-                    break
-
-        if not messaging_list:
-            log.info("Evento sin messaging, ignorando. Entry: %s", str(entry)[:300])
-            return
-
-        messaging = messaging_list[0]
-        sender_id = messaging.get("sender", {}).get("id")
-        mensaje   = messaging.get("message", {}).get("text", "")
+        sender_id, mensaje = extraer_sender_y_mensaje(data)
 
         if not sender_id or not mensaje:
-            log.info("Evento sin sender_id o mensaje, ignorando. Messaging: %s", str(messaging)[:300])
+            log.info("Evento sin sender_id o mensaje, ignorando.")
             return
 
         log.info("Mensaje recibido de IG user=%s: %s", sender_id, mensaje[:80])
 
         async with httpx.AsyncClient() as client:
-            # 1. Obtener o crear sesión en Odoo
+            if AUTO_RESPUESTA:
+                # Modo verificación: eco simple sin Odoo ni AI
+                respuesta = f"Bot activo - recibi tu mensaje: {mensaje}"
+                await enviar_mensaje_instagram(client, sender_id, respuesta)
+                log.info("Auto-respuesta enviada a IG user=%s", sender_id)
+                return
+
+            # ── Modo completo: Odoo + AI ──────────────────────────────────────
             channel_id = await obtener_o_crear_sesion(client, sender_id, f"IG_{sender_id}")
-
-            # 2. Enviar mensaje del cliente a Odoo
             await enviar_mensaje_odoo(client, channel_id, mensaje)
-
-            # 3. Esperar respuesta del agente
             respuesta = await esperar_respuesta_agente(client, channel_id)
-
-            # 4. Responder al DM de Instagram
             await enviar_mensaje_instagram(client, sender_id, respuesta)
 
     except Exception as e:
