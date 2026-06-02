@@ -1,25 +1,29 @@
+import json
 import logging
 
 import httpx
 
 from config import GROQ_API_KEY, SYSTEM_PROMPT
-from db import guardar_lead, guardar_mensaje, obtener_historial
+from db import guardar_lead, guardar_mensaje, obtener_historial, tiene_lead_activo
 
 log = logging.getLogger(__name__)
 
-PALABRAS_LEAD = [
-    "presupuesto", "precio", "cuánto", "cuanto", "cotización",
-    "medidas", "cantidad", "encargar", "necesito", "quiero",
-]
+EXTRACCION_PROMPT = """
+Analizá esta conversación y extraé los datos del cliente si están disponibles.
+Respondé SOLO con un JSON válido con este formato exacto (sin explicaciones):
+{
+  "tiene_lead": true/false,
+  "nombre": "nombre del cliente o null",
+  "telefono": "teléfono o null",
+  "descripcion": "resumen breve del pedido en 1-2 oraciones o null"
+}
+
+"tiene_lead" debe ser true solo si el cliente expresó un pedido concreto
+(mencionó qué necesita, material, medidas o cantidad).
+"""
 
 
-async def generar_respuesta(user_id: str, mensaje: str, canal: str = "instagram") -> str:
-    if not GROQ_API_KEY:
-        return "El servicio de IA no está configurado. Te contactamos a la brevedad."
-
-    await guardar_mensaje(user_id, "user", mensaje)
-    msgs = await obtener_historial(user_id)
-
+async def _llamar_groq(messages: list, max_tokens: int = 400) -> str | None:
     try:
         async with httpx.AsyncClient() as client:
             resp = await client.post(
@@ -30,30 +34,82 @@ async def generar_respuesta(user_id: str, mensaje: str, canal: str = "instagram"
                 },
                 json={
                     "model": "llama-3.3-70b-versatile",
-                    "messages": [{"role": "system", "content": SYSTEM_PROMPT}] + msgs,
-                    "max_tokens": 300,
+                    "messages": messages,
+                    "max_tokens": max_tokens,
                     "temperature": 0.7,
                 },
                 timeout=25,
             )
-
             if resp.status_code != 200:
                 log.error("Groq error %s: %s", resp.status_code, resp.text)
-                return "En este momento no puedo responderte. Te contactamos a la brevedad."
-
-            respuesta = resp.json()["choices"][0]["message"]["content"].strip()
-
+                return None
+            return resp.json()["choices"][0]["message"]["content"].strip()
     except httpx.TimeoutException:
-        log.error("Groq timeout — user=%s", user_id)
-        return "Tardamos un poco más de lo normal. ¿Podés repetir tu consulta?"
+        log.error("Groq timeout")
+        return None
     except Exception as e:
-        log.error("Groq excepción — user=%s: %s", user_id, e)
-        return "Tuvimos un problema técnico. Te contactamos a la brevedad."
+        log.error("Groq excepción: %s", e)
+        return None
+
+
+async def _intentar_crear_lead(user_id: str, canal: str, historial: list):
+    """Pide a Groq que extraiga datos del lead y lo crea en Odoo si corresponde."""
+    if await tiene_lead_activo(user_id):
+        return
+
+    conversacion = "\n".join(
+        f"{'Cliente' if m['role'] == 'user' else 'Bot'}: {m['content']}"
+        for m in historial[-10:]
+    )
+
+    resultado = await _llamar_groq([
+        {"role": "system", "content": EXTRACCION_PROMPT},
+        {"role": "user", "content": conversacion},
+    ], max_tokens=200)
+
+    if not resultado:
+        return
+
+    try:
+        datos = json.loads(resultado)
+    except json.JSONDecodeError:
+        log.warning("Groq no devolvió JSON válido para extracción: %s", resultado[:100])
+        return
+
+    if not datos.get("tiene_lead"):
+        return
+
+    nombre      = datos.get("nombre") or ""
+    telefono    = datos.get("telefono") or ""
+    descripcion = datos.get("descripcion") or ""
+
+    from odoo_crm import crear_lead
+    odoo_id = await crear_lead(nombre, telefono, descripcion, canal, user_id) or 0
+    await guardar_lead(user_id, descripcion, canal, odoo_id)
+    log.info("Lead procesado — user=%s odoo_id=%s", user_id, odoo_id)
+
+
+async def generar_respuesta(user_id: str, mensaje: str, canal: str = "instagram") -> str:
+    if not GROQ_API_KEY:
+        return "El servicio de IA no está configurado. Te contactamos a la brevedad."
+
+    await guardar_mensaje(user_id, "user", mensaje)
+    historial = await obtener_historial(user_id)
+
+    respuesta = await _llamar_groq(
+        [{"role": "system", "content": SYSTEM_PROMPT}] + historial
+    )
+
+    if not respuesta:
+        return "Tardamos un poco más de lo normal. ¿Podés repetir tu consulta?"
 
     await guardar_mensaje(user_id, "assistant", respuesta)
 
-    if any(p in mensaje.lower() for p in PALABRAS_LEAD):
-        await guardar_lead(user_id, f"Mensaje: {mensaje[:200]}", canal)
+    # Intentar extraer y crear lead cada 3 turnos del cliente
+    turnos_cliente = sum(1 for m in historial if m["role"] == "user")
+    if turnos_cliente >= 3 and turnos_cliente % 3 == 0:
+        import asyncio
+        asyncio.create_task(_intentar_crear_lead(user_id, canal, historial))
 
     log.info("Groq [%s] user=%s: %s...", canal, user_id, respuesta[:80])
     return respuesta

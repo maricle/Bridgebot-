@@ -26,11 +26,12 @@ def _init():
             creado_en   TEXT DEFAULT (datetime('now'))
         );
         CREATE TABLE IF NOT EXISTS leads (
-            id          INTEGER PRIMARY KEY AUTOINCREMENT,
-            ig_user_id  TEXT NOT NULL,
-            canal       TEXT DEFAULT 'instagram',
-            resumen     TEXT,
-            creado_en   TEXT DEFAULT (datetime('now'))
+            id            INTEGER PRIMARY KEY AUTOINCREMENT,
+            ig_user_id    TEXT NOT NULL,
+            canal         TEXT DEFAULT 'instagram',
+            resumen       TEXT,
+            odoo_lead_id  INTEGER DEFAULT 0,
+            creado_en     TEXT DEFAULT (datetime('now'))
         );
     """)
     con.commit()
@@ -86,13 +87,26 @@ async def guardar_mensaje(user_id: str, rol: str, contenido: str):
         )
 
 
-async def guardar_lead(user_id: str, resumen: str, canal: str = "instagram"):
+async def guardar_lead(user_id: str, resumen: str, canal: str = "instagram",
+                       odoo_lead_id: int = 0) -> int:
     with _db() as con:
-        con.execute(
-            "INSERT INTO leads (ig_user_id, canal, resumen) VALUES (?, ?, ?)",
-            (user_id, canal, resumen)
+        cur = con.execute(
+            "INSERT INTO leads (ig_user_id, canal, resumen, odoo_lead_id) VALUES (?, ?, ?, ?)",
+            (user_id, canal, resumen, odoo_lead_id)
         )
-    log.info("Lead guardado — user=%s canal=%s", user_id, canal)
+        lead_id = cur.lastrowid
+    log.info("Lead guardado — user=%s canal=%s odoo_id=%s", user_id, canal, odoo_lead_id)
+    return lead_id
+
+
+async def tiene_lead_activo(user_id: str) -> bool:
+    """Retorna True si el usuario ya tiene un lead creado en Odoo."""
+    with _db() as con:
+        row = con.execute(
+            "SELECT id FROM leads WHERE ig_user_id = ? AND odoo_lead_id > 0",
+            (user_id,)
+        ).fetchone()
+    return row is not None
 
 
 async def stats() -> dict:
