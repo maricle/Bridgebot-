@@ -281,6 +281,10 @@ async def procesar_evento(data: dict):
             log.info("Evento sin mensaje de texto, ignorando.")
             return
 
+        if sender_id == IG_ACCOUNT_ID:
+            log.info("Mensaje propio del bot, ignorando.")
+            return
+
         log.info("Mensaje de IG user=%s: %s", sender_id, mensaje[:100])
 
         async with httpx.AsyncClient() as client:
