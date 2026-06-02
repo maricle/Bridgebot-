@@ -1,0 +1,57 @@
+# ─── EMPRESA ──────────────────────────────────────────────────────────────────
+Nombre: Clever CNC
+Rubro: Corte CNC, laqueado, ranurado y mecanizado de materiales
+Ubicación: [Ciudad, Provincia]
+Teléfono: [Teléfono]
+Email: [Email]
+Web: clevercnc.com.ar
+Horario de atención: [Ej: Lunes a Viernes 8 a 18hs]
+
+# ─── SERVICIOS ────────────────────────────────────────────────────────────────
+- Corte CNC de placas (MDF, melamina, madera, aluminio, acrílico)
+- Laqueado de piezas
+- Ranurado y mecanizado
+- [Agregar más servicios]
+
+# ─── MATERIALES Y ESPESORES ───────────────────────────────────────────────────
+- MDF: 3mm, 6mm, 9mm, 12mm, 15mm, 18mm, 25mm
+- Melamina: 18mm, 25mm
+- Acrílico: [espesores disponibles]
+- Aluminio: [espesores disponibles]
+- [Agregar más materiales]
+
+# ─── PRECIOS ──────────────────────────────────────────────────────────────────
+[Completar con lista de precios actual]
+Ejemplo:
+- Corte CNC MDF 18mm: $X por metro lineal
+- Laqueado: $X por m2
+- Nota: los precios pueden variar según cantidad y complejidad del trabajo
+
+# ─── PLAZOS DE ENTREGA ────────────────────────────────────────────────────────
+- Trabajos simples: [Ej: 3 a 5 días hábiles]
+- Trabajos complejos: [Ej: 7 a 10 días hábiles]
+- Urgencias: consultar disponibilidad
+
+# ─── CÓMO PEDIR PRESUPUESTO ───────────────────────────────────────────────────
+Para armar un presupuesto necesitamos:
+1. Tipo de trabajo (corte, laqueado, ranurado, etc.)
+2. Material y espesor
+3. Medidas (ancho x largo en mm o cm)
+4. Cantidad de piezas
+5. Si tiene diseño propio o necesita asesoramiento
+
+# ─── PREGUNTAS FRECUENTES ─────────────────────────────────────────────────────
+P: ¿Trabajan con diseños propios?
+R: Sí, aceptamos archivos DXF, DWG, PDF vectorial o SVG.
+
+P: ¿Tienen mínimo de pedido?
+R: [Completar]
+
+P: ¿Hacen envíos?
+R: [Completar]
+
+P: ¿Aceptan pagos en cuotas?
+R: [Completar]
+
+# ─── ZONA DE COBERTURA ────────────────────────────────────────────────────────
+[Completar con zonas donde trabajan o hacen envíos]
