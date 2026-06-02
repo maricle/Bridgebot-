@@ -55,6 +55,8 @@ app = FastAPI(title="BridgeBot — Instagram Odoo Agent", version="2.0.0")
 sesiones: dict[str, int] = {}
 # Historial de conversación por usuario para Grok
 historial: dict[str, list] = {}
+# Usuarios que ya recibieron el saludo
+saludados: set[str] = set()
 
 
 # ─── ODOO ─────────────────────────────────────────────────────────────────────
@@ -199,31 +201,41 @@ async def generar_respuesta_grok(ig_user_id: str, mensaje: str) -> str:
 
     historial[ig_user_id].append({"role": "user", "content": mensaje})
 
-    async with httpx.AsyncClient() as client:
-        resp = await client.post(
-            "https://api.x.ai/v1/chat/completions",
-            headers={
-                "Authorization": f"Bearer {GROK_API_KEY}",
-                "Content-Type": "application/json",
-            },
-            json={
-                "model": "grok-3-latest",
-                "messages": [{"role": "system", "content": SYSTEM_PROMPT}] + historial[ig_user_id],
-                "max_tokens": 400,
-            },
-            timeout=30,
-        )
-        resp.raise_for_status()
-        data = resp.json()
+    try:
+        async with httpx.AsyncClient() as client:
+            resp = await client.post(
+                "https://api.x.ai/v1/chat/completions",
+                headers={
+                    "Authorization": f"Bearer {GROK_API_KEY}",
+                    "Content-Type": "application/json",
+                },
+                json={
+                    "model": "grok-3-mini",
+                    "messages": [{"role": "system", "content": SYSTEM_PROMPT}] + historial[ig_user_id],
+                    "max_tokens": 400,
+                },
+                timeout=20,
+            )
+            resp.raise_for_status()
+            data = resp.json()
 
-    respuesta = data["choices"][0]["message"]["content"].strip()
-    historial[ig_user_id].append({"role": "assistant", "content": respuesta})
+        respuesta = data["choices"][0]["message"]["content"].strip()
+        historial[ig_user_id].append({"role": "assistant", "content": respuesta})
 
-    if len(historial[ig_user_id]) > 20:
-        historial[ig_user_id] = historial[ig_user_id][-20:]
+        if len(historial[ig_user_id]) > 20:
+            historial[ig_user_id] = historial[ig_user_id][-20:]
 
-    log.info("Grok respondió a IG user=%s: %s...", ig_user_id, respuesta[:80])
-    return respuesta
+        log.info("Grok respondió a IG user=%s: %s...", ig_user_id, respuesta[:80])
+        return respuesta
+
+    except httpx.TimeoutException:
+        log.warning("Grok timeout para IG user=%s", ig_user_id)
+        historial[ig_user_id].pop()
+        return "Tardamos un poco más de lo esperado. ¿Podés repetir tu consulta?"
+    except Exception as e:
+        log.error("Error Grok para IG user=%s: %s", ig_user_id, e)
+        historial[ig_user_id].pop()
+        return "Hubo un problema al procesar tu consulta. Un asesor te va a contactar a la brevedad."
 
 
 # ─── INSTAGRAM ────────────────────────────────────────────────────────────────
@@ -337,15 +349,22 @@ async def procesar_evento(data: dict):
         async with httpx.AsyncClient() as client:
 
             if AUTO_RESPUESTA:
-                # Modo verificación: eco simple
                 respuesta = "Hola, somos Clever CNC, ¿en qué podemos ayudarte?"
                 await enviar_mensaje_instagram(client, sender_id, respuesta)
-                log.info("Modo AUTO_RESPUESTA — eco enviado a %s", sender_id)
+                log.info("Modo AUTO_RESPUESTA — saludo enviado a %s", sender_id)
                 return
 
             # ── Modo Grok AI ──────────────────────────────────────────────────
-            respuesta = await generar_respuesta_grok(sender_id, mensaje)
-            await enviar_mensaje_instagram(client, sender_id, respuesta)
+            es_nuevo = sender_id not in saludados
+            saludados.add(sender_id)
+
+            respuesta_grok = await generar_respuesta_grok(sender_id, mensaje)
+
+            if es_nuevo:
+                saludo = "Hola, somos Clever CNC, ¿en qué podemos ayudarte?\n\n" + respuesta_grok
+                await enviar_mensaje_instagram(client, sender_id, saludo)
+            else:
+                await enviar_mensaje_instagram(client, sender_id, respuesta_grok)
 
     except Exception as e:
         log.exception("Error procesando evento: %s", e)
