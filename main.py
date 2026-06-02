@@ -250,6 +250,8 @@ def extraer_sender_y_mensaje(data: dict) -> tuple[str, str]:
 async def startup():
     init_db()
     log.info("BridgeBot v4 iniciado — modo: %s", "AUTO_RESPUESTA" if AUTO_RESPUESTA else "GROQ_AI")
+    log.info("GROQ_API_KEY configurada: %s", "SI" if GROQ_API_KEY else "NO")
+    log.info("IG_ACCOUNT_ID: %s", IG_ACCOUNT_ID or "NO CONFIGURADO")
 
 
 @app.get("/webhook")
