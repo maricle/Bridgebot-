@@ -148,6 +148,21 @@ async def procesar_whatsapp(data: dict):
 
 # ─── UTILS ────────────────────────────────────────────────────────────────────
 
+@app.get("/test-odoo")
+async def test_odoo():
+    from odoo_crm import crear_lead
+    lead_id = await crear_lead(
+        nombre_cliente="Test BridgeBot",
+        telefono="0000000000",
+        descripcion="Lead de prueba desde /test-odoo — podés eliminarlo.",
+        canal="test",
+        user_id="test",
+    )
+    if lead_id:
+        return {"ok": True, "odoo_lead_id": lead_id, "mensaje": "Lead creado correctamente en Odoo CRM"}
+    return {"ok": False, "mensaje": "No se pudo crear el lead — revisá ODOO_URL, ODOO_API_KEY y ODOO_DB en Railway"}
+
+
 @app.get("/health")
 async def health():
     return {
