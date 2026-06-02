@@ -27,6 +27,7 @@ log = logging.getLogger(__name__)
 VERIFY_TOKEN       = os.environ["META_VERIFY_TOKEN"]
 APP_SECRET         = os.environ["META_APP_SECRET"]
 IG_ACCESS_TOKEN    = os.environ["IG_ACCESS_TOKEN"]
+IG_ACCOUNT_ID      = os.environ["IG_ACCOUNT_ID"]
 ODOO_URL           = os.environ["ODOO_URL"].rstrip("/")
 ODOO_API_KEY       = os.environ["ODOO_API_KEY"]
 ODOO_CHANNEL_ID    = int(os.environ["ODOO_LIVECHAT_CHANNEL_ID"])
@@ -158,7 +159,7 @@ async def esperar_respuesta_agente(client: httpx.AsyncClient, channel_id: int, e
 async def enviar_mensaje_instagram(client: httpx.AsyncClient, recipient_id: str, texto: str) -> None:
     """Envía un mensaje al DM de Instagram."""
     resp = await client.post(
-        "https://graph.facebook.com/v19.0/me/messages",
+        f"https://graph.instagram.com/v19.0/{IG_ACCOUNT_ID}/messages",
         params={"access_token": IG_ACCESS_TOKEN},
         json={
             "recipient": {"id": recipient_id},
