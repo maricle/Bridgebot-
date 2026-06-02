@@ -89,10 +89,10 @@ async def procesar_instagram(data: dict):
                 return
 
             nuevo     = await es_usuario_nuevo(sender_id)
-            respuesta = await generar_respuesta(sender_id, mensaje, "instagram")
             if nuevo:
                 await marcar_saludado(sender_id, "instagram")
-                respuesta = f"{SALUDO}\n\n{respuesta}"
+                await instagram.enviar_mensaje(client, sender_id, SALUDO)
+            respuesta = await generar_respuesta(sender_id, mensaje, "instagram")
             await instagram.enviar_mensaje(client, sender_id, respuesta)
 
     except Exception as e:
@@ -135,10 +135,10 @@ async def procesar_whatsapp(data: dict):
         log.info("WA user=%s: %s", sender_id, mensaje[:100])
         async with httpx.AsyncClient() as client:
             nuevo     = await es_usuario_nuevo(sender_id)
-            respuesta = await generar_respuesta(sender_id, mensaje, "whatsapp")
             if nuevo:
                 await marcar_saludado(sender_id, "whatsapp")
-                respuesta = f"{SALUDO}\n\n{respuesta}"
+                await whatsapp.enviar_mensaje(client, sender_id, SALUDO)
+            respuesta = await generar_respuesta(sender_id, mensaje, "whatsapp")
             await whatsapp.enviar_mensaje(client, sender_id, respuesta)
 
     except Exception as e:
