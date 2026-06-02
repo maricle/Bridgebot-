@@ -28,7 +28,7 @@ app = FastAPI(title="BridgeBot", version="5.0.0")
 
 @app.on_event("startup")
 async def startup():
-    init_db()
+    await init_db()
     modo = "AUTO_RESPUESTA" if AUTO_RESPUESTA else "GROQ_AI"
     log.info("BridgeBot v5 iniciado — modo: %s", modo)
     log.info("GROQ configurado: %s", "SI" if __import__("config").GROQ_API_KEY else "NO")
@@ -74,15 +74,15 @@ async def procesar_instagram(data: dict):
         log.info("IG user=%s: %s", sender_id, mensaje[:100])
         async with httpx.AsyncClient() as client:
             if AUTO_RESPUESTA:
-                if es_usuario_nuevo(sender_id):
+                if await es_usuario_nuevo(sender_id):
                     await instagram.enviar_mensaje(client, sender_id, SALUDO)
-                    marcar_saludado(sender_id, "instagram")
+                    await marcar_saludado(sender_id, "instagram")
                 return
 
-            nuevo    = es_usuario_nuevo(sender_id)
+            nuevo     = await es_usuario_nuevo(sender_id)
             respuesta = await generar_respuesta(sender_id, mensaje, "instagram")
             if nuevo:
-                marcar_saludado(sender_id, "instagram")
+                await marcar_saludado(sender_id, "instagram")
                 respuesta = f"{SALUDO}\n\n{respuesta}"
             await instagram.enviar_mensaje(client, sender_id, respuesta)
 
@@ -125,10 +125,10 @@ async def procesar_whatsapp(data: dict):
 
         log.info("WA user=%s: %s", sender_id, mensaje[:100])
         async with httpx.AsyncClient() as client:
-            nuevo     = es_usuario_nuevo(sender_id)
+            nuevo     = await es_usuario_nuevo(sender_id)
             respuesta = await generar_respuesta(sender_id, mensaje, "whatsapp")
             if nuevo:
-                marcar_saludado(sender_id, "whatsapp")
+                await marcar_saludado(sender_id, "whatsapp")
                 respuesta = f"{SALUDO}\n\n{respuesta}"
             await whatsapp.enviar_mensaje(client, sender_id, respuesta)
 
@@ -144,10 +144,10 @@ async def health():
         "status": "ok",
         "version": "5.0.0",
         "modo": "AUTO_RESPUESTA" if AUTO_RESPUESTA else "GROQ_AI",
-        **stats(),
+        **(await stats()),
     }
 
 
 @app.get("/leads")
 async def ver_leads():
-    return obtener_leads()
+    return await obtener_leads()

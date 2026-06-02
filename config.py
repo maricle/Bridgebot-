@@ -35,4 +35,6 @@ SYSTEM_PROMPT = os.environ.get(
 )
 
 # ─── BASE DE DATOS ────────────────────────────────────────────────────────────
-DB_PATH = os.environ.get("DB_PATH", "/app/bridgebot.db")
+TURSO_URL   = os.environ.get("TURSO_URL", "")
+TURSO_TOKEN = os.environ.get("TURSO_TOKEN", "")
+DB_PATH     = os.environ.get("DB_PATH", "/app/bridgebot.db")

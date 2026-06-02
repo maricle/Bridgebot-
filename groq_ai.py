@@ -17,8 +17,8 @@ async def generar_respuesta(user_id: str, mensaje: str, canal: str = "instagram"
     if not GROQ_API_KEY:
         return "El servicio de IA no está configurado. Te contactamos a la brevedad."
 
-    guardar_mensaje(user_id, "user", mensaje)
-    msgs = obtener_historial(user_id)
+    await guardar_mensaje(user_id, "user", mensaje)
+    msgs = await obtener_historial(user_id)
 
     try:
         async with httpx.AsyncClient() as client:
@@ -50,10 +50,10 @@ async def generar_respuesta(user_id: str, mensaje: str, canal: str = "instagram"
         log.error("Groq excepción — user=%s: %s", user_id, e)
         return "Tuvimos un problema técnico. Te contactamos a la brevedad."
 
-    guardar_mensaje(user_id, "assistant", respuesta)
+    await guardar_mensaje(user_id, "assistant", respuesta)
 
     if any(p in mensaje.lower() for p in PALABRAS_LEAD):
-        guardar_lead(user_id, f"Mensaje: {mensaje[:200]}", canal)
+        await guardar_lead(user_id, f"Mensaje: {mensaje[:200]}", canal)
 
     log.info("Groq [%s] user=%s: %s...", canal, user_id, respuesta[:80])
     return respuesta
