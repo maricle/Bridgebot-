@@ -291,7 +291,7 @@ async def procesar_evento(data: dict):
 
             if AUTO_RESPUESTA:
                 # Modo verificación: eco simple
-                respuesta = f"BridgeBot activo — recibi: {mensaje}"
+                respuesta = "Hola, somos Clever CNC, ¿en qué podemos ayudarte?"
                 await enviar_mensaje_instagram(client, sender_id, respuesta)
                 log.info("Modo AUTO_RESPUESTA — eco enviado a %s", sender_id)
                 return
