@@ -13,7 +13,7 @@ _db_token = TURSO_TOKEN if TURSO_TOKEN else None
 
 
 def _get_client():
-    return libsql_client.create_client_async(url=_db_url, auth_token=_db_token)
+    return libsql_client.create_client(url=_db_url, auth_token=_db_token)
 
 
 CREATE_TABLES = """
