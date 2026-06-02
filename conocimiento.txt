@@ -45,13 +45,13 @@ P: ¿Trabajan con diseños propios?
 R: Sí, aceptamos archivos DXF, DWG, PDF vectorial o SVG.
 
 P: ¿Tienen mínimo de pedido?
-R: [Completar]
+R: NO
 
 P: ¿Hacen envíos?
-R: [Completar]
+R: si, lo ideal es coordinar 
 
 P: ¿Aceptan pagos en cuotas?
-R: [Completar]
+R: por el momento no, solo dos vece, entrega mas el total al finalizar el proyecto
 
 # ─── ZONA DE COBERTURA ────────────────────────────────────────────────────────
-[Completar con zonas donde trabajan o hacen envíos]
+Somos de Corrientes, hacemos envios  al interior, Formosa y Resistencia.

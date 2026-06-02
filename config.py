@@ -23,33 +23,22 @@ SALUDO = os.environ.get(
     "¡Hola! Soy el asistente virtual de Clever CNC 👋 ¿En qué te puedo ayudar hoy?"
 )
 
-_BASE_PROMPT = (
-    "Sos el asistente virtual de {empresa}. "
-    "Respondé consultas de clientes de forma amable y profesional en español argentino usando 'vos'. "
-    "Usá la información de la empresa para responder con precisión. "
-    "Si el cliente quiere presupuesto, pedile: tipo de trabajo, material, medidas y cantidad. "
-    "Si no podés resolver algo, avisá que un asesor lo va a contactar. "
-    "IMPORTANTE: nunca saludes con 'Hola' ni te presentes — el saludo ya fue enviado. "
-    "Respondé siempre de forma concisa, máximo 3 oraciones."
-)
-
-def _cargar_conocimiento() -> str:
+def _leer_archivo(nombre: str) -> str:
     base_dir = os.path.dirname(os.path.abspath(__file__))
-    ruta = os.path.join(base_dir, "conocimiento.txt")
     try:
-        with open(ruta, encoding="utf-8") as f:
-            return f.read()
+        with open(os.path.join(base_dir, nombre), encoding="utf-8") as f:
+            return f.read().strip()
     except FileNotFoundError:
         return ""
 
-_conocimiento = _cargar_conocimiento()
-_empresa = os.environ.get("EMPRESA_NOMBRE", "la empresa")
-_prompt_base = _BASE_PROMPT.format(empresa=_empresa)
+_agente      = _leer_archivo("agente.txt")
+_conocimiento = _leer_archivo("conocimiento.txt")
 
-SYSTEM_PROMPT = os.environ.get(
-    "BOT_SYSTEM_PROMPT",
-    f"{_prompt_base}\n\n## Información de la empresa:\n{_conocimiento}" if _conocimiento else _prompt_base
-)
+_prompt_combinado = _agente
+if _conocimiento:
+    _prompt_combinado += f"\n\n## Información de productos y precios:\n{_conocimiento}"
+
+SYSTEM_PROMPT = os.environ.get("BOT_SYSTEM_PROMPT", _prompt_combinado)
 
 # ─── BASE DE DATOS ────────────────────────────────────────────────────────────
 TURSO_URL   = os.environ.get("TURSO_URL", "")
