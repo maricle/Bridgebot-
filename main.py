@@ -1,10 +1,6 @@
 """
-BridgeBot — Instagram → Odoo Live Chat Agent
+BridgeBot — Instagram → Groq AI Agent
 Kleba Dev — 2026
-
-Recibe mensajes de Instagram via webhook de Meta,
-los envía al agente de Odoo Live Chat y devuelve
-la respuesta al DM del cliente.
 """
 
 import asyncio
@@ -12,8 +8,8 @@ import hashlib
 import hmac
 import logging
 import os
-import re
-import time
+import sqlite3
+from contextlib import contextmanager
 
 import httpx
 from dotenv import load_dotenv
@@ -27,223 +23,175 @@ logging.getLogger("httpx").setLevel(logging.WARNING)
 logging.getLogger("httpcore").setLevel(logging.WARNING)
 
 # ─── CONFIG ──────────────────────────────────────────────────────────────────
-VERIFY_TOKEN          = os.environ["META_VERIFY_TOKEN"]
-APP_SECRET            = os.environ["META_APP_SECRET"]
-IG_ACCESS_TOKEN       = os.environ["IG_ACCESS_TOKEN"]
-IG_ACCOUNT_ID         = os.environ.get("IG_ACCOUNT_ID", "17841456843060136")
-ODOO_URL              = os.environ["ODOO_URL"].rstrip("/")
-ODOO_API_KEY          = os.environ["ODOO_API_KEY"]
-ODOO_CHANNEL_ID       = int(os.environ["ODOO_LIVECHAT_CHANNEL_ID"])
-ODOO_DB               = os.environ["ODOO_DB"]
-GROK_API_KEY          = os.environ.get("GROK_API_KEY", "")
+VERIFY_TOKEN    = os.environ["META_VERIFY_TOKEN"]
+APP_SECRET      = os.environ["META_APP_SECRET"]
+IG_ACCESS_TOKEN = os.environ["IG_ACCESS_TOKEN"]
+IG_ACCOUNT_ID   = os.environ.get("IG_ACCOUNT_ID", "17841456843060136")
+GROQ_API_KEY    = os.environ.get("GROQ_API_KEY", "")
+AUTO_RESPUESTA  = os.environ.get("AUTO_RESPUESTA", "false").lower() == "true"
 
-# ─── MODO ────────────────────────────────────────────────────────────────────
-# AUTO_RESPUESTA=true  → saludo fijo de bienvenida
-# AUTO_RESPUESTA=false → Grok AI responde
-AUTO_RESPUESTA = os.environ.get("AUTO_RESPUESTA", "true").lower() == "true"
-
-SYSTEM_PROMPT = os.environ.get("BOT_SYSTEM_PROMPT",
-    "Sos el asistente virtual de Clever CNC, empresa especializada en máquinas CNC y servicios de corte. "
-    "Respondé consultas de clientes de forma amable, clara y profesional. "
-    "Podés ayudar con precios, disponibilidad, especificaciones técnicas y plazos de entrega. "
-    "Si necesitás escalar, avisá que un asesor se va a contactar. "
-    "Respondé siempre en español, de forma concisa (máximo 3 oraciones)."
+SALUDO = os.environ.get(
+    "SALUDO_BIENVENIDA",
+    "¡Hola! Soy el asistente virtual de Clever CNC 👋 ¿En qué te puedo ayudar hoy?"
 )
 
+SYSTEM_PROMPT = os.environ.get("BOT_SYSTEM_PROMPT",
+    "Sos el asistente virtual de Clever CNC, empresa especializada en corte CNC, "
+    "laqueado, ranurado y mecanizado de materiales. "
+    "Respondé consultas de clientes de forma amable y profesional en español argentino usando 'vos'. "
+    "Ayudá con precios, materiales, medidas, plazos y presupuestos. "
+    "Si el cliente quiere presupuesto, pedile: tipo de trabajo, material, medidas y cantidad. "
+    "Si no podés resolver algo, avisá que un asesor lo va a contactar. "
+    "Respondé siempre de forma concisa, máximo 3 oraciones."
+)
+
+DB_PATH = os.environ.get("DB_PATH", "/app/bridgebot.db")
+
 # ─── APP ─────────────────────────────────────────────────────────────────────
-app = FastAPI(title="BridgeBot — Instagram Odoo Agent", version="2.0.0")
-
-# Sesiones activas: { instagram_user_id: odoo_discuss_channel_id }
-sesiones: dict[str, int] = {}
-# Historial de conversación por usuario para Grok
-historial: dict[str, list] = {}
-# Usuarios que ya recibieron el saludo
-saludados: set[str] = set()
+app = FastAPI(title="BridgeBot", version="4.0.0")
 
 
-# ─── ODOO ─────────────────────────────────────────────────────────────────────
+# ─── BASE DE DATOS SQLite ─────────────────────────────────────────────────────
 
-def odoo_headers() -> dict:
-    return {
-        "Authorization": f"Bearer {ODOO_API_KEY}",
-        "Content-Type": "application/json",
-        "X-Odoo-Database": ODOO_DB,
-    }
+def init_db():
+    os.makedirs(os.path.dirname(DB_PATH), exist_ok=True)
+    con = sqlite3.connect(DB_PATH)
+    con.executescript("""
+        CREATE TABLE IF NOT EXISTS usuarios (
+            ig_user_id  TEXT PRIMARY KEY,
+            saludado    INTEGER DEFAULT 0,
+            creado_en   TEXT DEFAULT (datetime('now'))
+        );
+        CREATE TABLE IF NOT EXISTS historial (
+            id          INTEGER PRIMARY KEY AUTOINCREMENT,
+            ig_user_id  TEXT NOT NULL,
+            rol         TEXT NOT NULL,
+            contenido   TEXT NOT NULL,
+            creado_en   TEXT DEFAULT (datetime('now'))
+        );
+        CREATE TABLE IF NOT EXISTS leads (
+            id          INTEGER PRIMARY KEY AUTOINCREMENT,
+            ig_user_id  TEXT NOT NULL,
+            resumen     TEXT,
+            creado_en   TEXT DEFAULT (datetime('now'))
+        );
+    """)
+    con.commit()
+    con.close()
+    log.info("Base de datos lista: %s", DB_PATH)
 
 
-async def odoo_rpc(client: httpx.AsyncClient, model: str, method: str, args: list, kwargs: dict = {}) -> any:
-    """Llama al endpoint JSON-RPC de Odoo."""
-    resp = await client.post(
-        f"{ODOO_URL}/web/dataset/call_kw",
-        headers=odoo_headers(),
-        json={
-            "jsonrpc": "2.0",
-            "method": "call",
-            "params": {"model": model, "method": method, "args": args, "kwargs": kwargs},
-        },
-        timeout=30,
-    )
-    resp.raise_for_status()
-    data = resp.json()
-    if "error" in data:
-        raise Exception(f"Odoo RPC error: {data['error']}")
-    return data["result"]
-
-
-async def obtener_o_crear_sesion(client: httpx.AsyncClient, ig_user_id: str, nombre: str) -> int:
-    """Retorna el discuss.channel id activo o crea uno nuevo. Compatible con Odoo 19."""
-    if ig_user_id in sesiones:
-        return sesiones[ig_user_id]
-
-    nombre_visitante = nombre or f"Instagram_{ig_user_id}"
-    channel_id = None
-
-    # Intento 1 — método nativo de livechat
+@contextmanager
+def get_db():
+    con = sqlite3.connect(DB_PATH)
+    con.row_factory = sqlite3.Row
     try:
-        result = await odoo_rpc(
-            client,
-            model="im_livechat.channel",
-            method="_open_livechat_mail_channel",
-            args=[ODOO_CHANNEL_ID],
-            kwargs={
-                "anonymous_name": nombre_visitante,
-                "previous_operator_id": False,
-                "chatbot_script_id": False,
-                "persisted": True,
-            },
+        yield con
+    finally:
+        con.close()
+
+
+def es_usuario_nuevo(ig_user_id: str) -> bool:
+    with get_db() as con:
+        row = con.execute(
+            "SELECT saludado FROM usuarios WHERE ig_user_id = ?", (ig_user_id,)
+        ).fetchone()
+        return row is None or row["saludado"] == 0
+
+
+def marcar_saludado(ig_user_id: str):
+    with get_db() as con:
+        con.execute("""
+            INSERT INTO usuarios (ig_user_id, saludado)
+            VALUES (?, 1)
+            ON CONFLICT(ig_user_id) DO UPDATE SET saludado = 1
+        """, (ig_user_id,))
+        con.commit()
+
+
+def obtener_historial(ig_user_id: str, limite: int = 20) -> list:
+    with get_db() as con:
+        rows = con.execute("""
+            SELECT rol, contenido FROM historial
+            WHERE ig_user_id = ?
+            ORDER BY id DESC LIMIT ?
+        """, (ig_user_id, limite)).fetchall()
+    return [{"role": r["rol"], "content": r["contenido"]} for r in reversed(rows)]
+
+
+def guardar_mensaje(ig_user_id: str, rol: str, contenido: str):
+    with get_db() as con:
+        con.execute(
+            "INSERT INTO historial (ig_user_id, rol, contenido) VALUES (?, ?, ?)",
+            (ig_user_id, rol, contenido)
         )
-        if isinstance(result, dict):
-            channel_id = result.get("id") or result.get("discuss_channel_id", {}).get("id")
-        else:
-            channel_id = result
-        log.info("Sesión creada via _open_livechat_mail_channel: %s", channel_id)
-    except Exception as e:
-        log.warning("_open_livechat_mail_channel falló: %s", e)
-
-    # Intento 2 — crear canal discuss directamente
-    if not channel_id:
-        try:
-            channel_id = await odoo_rpc(
-                client,
-                model="discuss.channel",
-                method="create",
-                args=[{
-                    "name": f"IG - {nombre_visitante}",
-                    "channel_type": "livechat",
-                    "livechat_channel_id": ODOO_CHANNEL_ID,
-                }],
-            )
-            log.info("Sesión creada via discuss.channel create: %s", channel_id)
-        except Exception as e:
-            log.warning("discuss.channel create falló: %s", e)
-
-    if not channel_id:
-        raise Exception("No se pudo crear sesión en Odoo — revisá los permisos de la API key")
-
-    sesiones[ig_user_id] = channel_id
-    log.info("Sesion Odoo lista: channel_id=%s para IG user=%s", channel_id, ig_user_id)
-    return channel_id
+        con.commit()
 
 
-async def enviar_mensaje_odoo(client: httpx.AsyncClient, channel_id: int, texto: str) -> None:
-    """Envía el mensaje del cliente al canal de Odoo."""
-    await odoo_rpc(
-        client,
-        model="discuss.channel",
-        method="message_post",
-        args=[channel_id],
-        kwargs={
-            "body": texto,
-            "message_type": "comment",
-            "subtype_xmlid": "mail.mt_comment",
-        },
-    )
-    log.info("Mensaje enviado a Odoo channel=%s", channel_id)
+def guardar_lead(ig_user_id: str, resumen: str):
+    with get_db() as con:
+        con.execute(
+            "INSERT INTO leads (ig_user_id, resumen) VALUES (?, ?)",
+            (ig_user_id, resumen)
+        )
+        con.commit()
+    log.info("Lead guardado para IG user=%s", ig_user_id)
 
 
-async def esperar_respuesta_agente(client: httpx.AsyncClient, channel_id: int, espera: int = 10) -> str:
-    """Hace polling hasta `espera` segundos esperando la respuesta del agente."""
-    ts_inicio = time.time()
-    ultima_respuesta = ""
+# ─── GROQ AI ─────────────────────────────────────────────────────────────────
 
-    while time.time() - ts_inicio < espera:
-        await asyncio.sleep(2)
-        try:
-            mensajes = await odoo_rpc(
-                client,
-                model="discuss.channel",
-                method="message_fetch",
-                args=[[
-                    ["res_id", "=", channel_id],
-                    ["model", "=", "discuss.channel"],
-                ]],
-                kwargs={"limit": 10},
-            )
-            for msg in reversed(mensajes or []):
-                autor = msg.get("author", {}).get("name", "")
-                cuerpo = msg.get("body", "").strip()
-                if cuerpo and autor and "Instagram" not in autor and "OdooBot" not in autor:
-                    texto_limpio = re.sub(r"<[^>]+>", "", cuerpo).strip()
-                    if texto_limpio and texto_limpio != ultima_respuesta:
-                        ultima_respuesta = texto_limpio
-                        log.info("Respuesta del agente: %s...", ultima_respuesta[:80])
-                        return ultima_respuesta
-        except Exception as e:
-            log.warning("Error leyendo mensajes de Odoo: %s", e)
+async def generar_respuesta_groq(ig_user_id: str, mensaje: str) -> str:
+    if not GROQ_API_KEY:
+        return "El servicio de IA no está configurado. Te contactamos a la brevedad."
 
-    return ultima_respuesta or "Hola, gracias por tu mensaje. Te respondemos a la brevedad."
-
-
-# ─── GROK AI ─────────────────────────────────────────────────────────────────
-
-async def generar_respuesta_grok(ig_user_id: str, mensaje: str) -> str:
-    """Genera una respuesta usando Grok, manteniendo historial por usuario."""
-    if ig_user_id not in historial:
-        historial[ig_user_id] = []
-
-    historial[ig_user_id].append({"role": "user", "content": mensaje})
+    guardar_mensaje(ig_user_id, "user", mensaje)
+    msgs = obtener_historial(ig_user_id)
 
     try:
         async with httpx.AsyncClient() as client:
             resp = await client.post(
-                "https://api.x.ai/v1/chat/completions",
+                "https://api.groq.com/openai/v1/chat/completions",
                 headers={
-                    "Authorization": f"Bearer {GROK_API_KEY}",
+                    "Authorization": f"Bearer {GROQ_API_KEY}",
                     "Content-Type": "application/json",
                 },
                 json={
-                    "model": "grok-3-mini",
-                    "messages": [{"role": "system", "content": SYSTEM_PROMPT}] + historial[ig_user_id],
-                    "max_tokens": 400,
+                    "model": "llama-3.3-70b-versatile",
+                    "messages": [{"role": "system", "content": SYSTEM_PROMPT}] + msgs,
+                    "max_tokens": 300,
+                    "temperature": 0.7,
                 },
-                timeout=20,
+                timeout=25,
             )
-            resp.raise_for_status()
+
+            if resp.status_code != 200:
+                log.error("Groq error %s: %s", resp.status_code, resp.text)
+                return "En este momento no puedo responderte. Te contactamos a la brevedad."
+
             data = resp.json()
-
-        respuesta = data["choices"][0]["message"]["content"].strip()
-        historial[ig_user_id].append({"role": "assistant", "content": respuesta})
-
-        if len(historial[ig_user_id]) > 20:
-            historial[ig_user_id] = historial[ig_user_id][-20:]
-
-        log.info("Grok respondió a IG user=%s: %s...", ig_user_id, respuesta[:80])
-        return respuesta
+            respuesta = data["choices"][0]["message"]["content"].strip()
 
     except httpx.TimeoutException:
-        log.warning("Grok timeout para IG user=%s", ig_user_id)
-        historial[ig_user_id].pop()
-        return "Tardamos un poco más de lo esperado. ¿Podés repetir tu consulta?"
+        log.error("Groq timeout para user=%s", ig_user_id)
+        return "Tardamos un poco más de lo normal. ¿Podés repetir tu consulta?"
     except Exception as e:
-        log.error("Error Grok para IG user=%s: %s", ig_user_id, e)
-        historial[ig_user_id].pop()
-        return "Hubo un problema al procesar tu consulta. Un asesor te va a contactar a la brevedad."
+        log.error("Groq excepción: %s", e)
+        return "Tuvimos un problema técnico. Te contactamos a la brevedad."
+
+    guardar_mensaje(ig_user_id, "assistant", respuesta)
+
+    palabras_lead = ["presupuesto", "precio", "cuánto", "cuanto", "cotización",
+                     "medidas", "cantidad", "encargar", "necesito", "quiero"]
+    if any(p in mensaje.lower() for p in palabras_lead):
+        guardar_lead(ig_user_id, f"Mensaje: {mensaje[:200]}")
+
+    log.info("Groq → IG user=%s: %s...", ig_user_id, respuesta[:80])
+    return respuesta
 
 
 # ─── INSTAGRAM ────────────────────────────────────────────────────────────────
 
-async def enviar_mensaje_instagram(client: httpx.AsyncClient, recipient_id: str, texto: str) -> None:
-    """Envía respuesta al DM de Instagram. Intenta graph.instagram.com y graph.facebook.com como fallback."""
+async def enviar_mensaje_instagram(client: httpx.AsyncClient, recipient_id: str, texto: str) -> bool:
     payload = {
         "recipient": {"id": recipient_id},
         "message": {"text": texto},
@@ -253,26 +201,26 @@ async def enviar_mensaje_instagram(client: httpx.AsyncClient, recipient_id: str,
         "Authorization": f"Bearer {IG_ACCESS_TOKEN}",
         "Content-Type": "application/json",
     }
-
     endpoints = [
         f"https://graph.instagram.com/v19.0/{IG_ACCOUNT_ID}/messages",
         f"https://graph.facebook.com/v19.0/{IG_ACCOUNT_ID}/messages",
     ]
-
     for url in endpoints:
-        resp = await client.post(url, headers=headers, json=payload, timeout=15)
-        if resp.status_code == 200:
-            log.info("DM enviado a IG user=%s via %s", recipient_id, url.split("/")[2])
-            return
-        log.warning("Fallo %s: %s %s", url.split("/")[2], resp.status_code, resp.text)
-
-    log.error("No se pudo enviar el DM a Instagram user=%s", recipient_id)
+        try:
+            resp = await client.post(url, headers=headers, json=payload, timeout=15)
+            if resp.status_code == 200:
+                log.info("DM enviado a IG user=%s", recipient_id)
+                return True
+            log.warning("%s → %s: %s", url.split("/")[2], resp.status_code, resp.text)
+        except Exception as e:
+            log.warning("Excepción DM %s: %s", url.split("/")[2], e)
+    log.error("No se pudo enviar DM a IG user=%s", recipient_id)
+    return False
 
 
 # ─── SEGURIDAD ────────────────────────────────────────────────────────────────
 
 def verificar_firma(payload: bytes, firma_header: str) -> bool:
-    """Verifica la firma HMAC-SHA256 de Meta."""
     if not firma_header or not firma_header.startswith("sha256="):
         return False
     firma_esperada = hmac.new(APP_SECRET.encode(), payload, hashlib.sha256).hexdigest()
@@ -280,33 +228,32 @@ def verificar_firma(payload: bytes, firma_header: str) -> bool:
 
 
 def extraer_sender_y_mensaje(data: dict) -> tuple[str, str]:
-    """Extrae sender_id y texto del payload de Meta."""
     entry = data.get("entry", [{}])[0]
-
     for msg in entry.get("messaging", []):
         sender_id = msg.get("sender", {}).get("id", "")
         texto     = msg.get("message", {}).get("text", "")
         if sender_id and texto:
             return sender_id, texto
-
     for change in entry.get("changes", []):
-        value    = change.get("value", {})
-        messages = value.get("messages", [])
-        if messages:
-            msg       = messages[0]
+        value = change.get("value", {})
+        for msg in value.get("messages", []):
             sender_id = msg.get("from", {}).get("id") or value.get("contacts", [{}])[0].get("wa_id", "")
             texto     = msg.get("text", {}).get("body", "")
             if sender_id and texto:
                 return sender_id, texto
-
     return "", ""
 
 
 # ─── RUTAS ────────────────────────────────────────────────────────────────────
 
+@app.on_event("startup")
+async def startup():
+    init_db()
+    log.info("BridgeBot v4 iniciado — modo: %s", "AUTO_RESPUESTA" if AUTO_RESPUESTA else "GROQ_AI")
+
+
 @app.get("/webhook")
 async def verificar_webhook(request: Request):
-    """Verificación del webhook por Meta."""
     params    = request.query_params
     mode      = params.get("hub.mode")
     token     = params.get("hub.verify_token")
@@ -314,61 +261,58 @@ async def verificar_webhook(request: Request):
     if mode == "subscribe" and token == VERIFY_TOKEN:
         log.info("Webhook verificado por Meta")
         return PlainTextResponse(challenge)
-    raise HTTPException(status_code=403, detail="Token de verificación incorrecto")
+    raise HTTPException(status_code=403, detail="Token incorrecto")
 
 
 @app.post("/webhook")
 async def recibir_mensaje(request: Request):
-    """Recibe eventos de Instagram."""
     payload = await request.body()
     firma   = request.headers.get("X-Hub-Signature-256", "")
-
     if not verificar_firma(payload, firma):
-        log.warning("Firma invalida")
         raise HTTPException(status_code=401, detail="Firma inválida")
-
     data = await request.json()
-    objeto = data.get("object", "?")
-    entry  = data.get("entry", [{}])[0]
-    log.info("Webhook [%s] entry=%s", objeto, entry.get("id", "?"))
+    entry = data.get("entry", [{}])[0]
+    log.info("Webhook [%s] entry=%s", data.get("object", "?"), entry.get("id", "?"))
     asyncio.create_task(procesar_evento(data))
     return Response(status_code=200)
 
 
 async def procesar_evento(data: dict):
-    """Procesa el evento de forma asíncrona."""
     try:
         sender_id, mensaje = extraer_sender_y_mensaje(data)
 
         if not sender_id or not mensaje:
-            log.info("Evento sin mensaje de texto, ignorando.")
+            log.info("Evento sin texto, ignorando.")
             return
 
         if sender_id == IG_ACCOUNT_ID:
             log.info("Mensaje propio del bot, ignorando.")
             return
 
-        log.info("Mensaje de IG user=%s: %s", sender_id, mensaje[:100])
+        log.info("IG user=%s: %s", sender_id, mensaje[:100])
 
         async with httpx.AsyncClient() as client:
 
             if AUTO_RESPUESTA:
-                respuesta = "Hola, somos Clever CNC, ¿en qué podemos ayudarte?"
-                await enviar_mensaje_instagram(client, sender_id, respuesta)
-                log.info("Modo AUTO_RESPUESTA — saludo enviado a %s", sender_id)
+                if es_usuario_nuevo(sender_id):
+                    await enviar_mensaje_instagram(client, sender_id, SALUDO)
+                    marcar_saludado(sender_id)
+                    log.info("Saludo enviado a nuevo usuario %s", sender_id)
+                else:
+                    log.info("Usuario %s ya saludado, ignorando en modo AUTO.", sender_id)
                 return
 
-            # ── Modo Grok AI ──────────────────────────────────────────────────
-            es_nuevo = sender_id not in saludados
-            saludados.add(sender_id)
+            # ── Modo Groq AI ──────────────────────────────────────────────────
+            nuevo = es_usuario_nuevo(sender_id)
+            if nuevo:
+                marcar_saludado(sender_id)
 
-            respuesta_grok = await generar_respuesta_grok(sender_id, mensaje)
+            respuesta = await generar_respuesta_groq(sender_id, mensaje)
 
-            if es_nuevo:
-                saludo = "Hola, somos Clever CNC, ¿en qué podemos ayudarte?\n\n" + respuesta_grok
-                await enviar_mensaje_instagram(client, sender_id, saludo)
-            else:
-                await enviar_mensaje_instagram(client, sender_id, respuesta_grok)
+            if nuevo:
+                respuesta = f"{SALUDO}\n\n{respuesta}"
+
+            await enviar_mensaje_instagram(client, sender_id, respuesta)
 
     except Exception as e:
         log.exception("Error procesando evento: %s", e)
@@ -376,8 +320,23 @@ async def procesar_evento(data: dict):
 
 @app.get("/health")
 async def health():
+    with get_db() as con:
+        total_usuarios = con.execute("SELECT COUNT(*) FROM usuarios").fetchone()[0]
+        total_leads    = con.execute("SELECT COUNT(*) FROM leads").fetchone()[0]
     return {
         "status": "ok",
-        "servicio": "BridgeBot",
-        "modo": "AUTO_RESPUESTA" if AUTO_RESPUESTA else "GROK_AI",
+        "version": "4.0.0",
+        "modo": "AUTO_RESPUESTA" if AUTO_RESPUESTA else "GROQ_AI",
+        "groq_configurado": bool(GROQ_API_KEY),
+        "total_usuarios": total_usuarios,
+        "total_leads": total_leads,
     }
+
+
+@app.get("/leads")
+async def ver_leads():
+    with get_db() as con:
+        rows = con.execute(
+            "SELECT ig_user_id, resumen, creado_en FROM leads ORDER BY id DESC LIMIT 50"
+        ).fetchall()
+    return [dict(r) for r in rows]
