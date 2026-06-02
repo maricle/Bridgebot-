@@ -9,17 +9,19 @@ from db import guardar_lead, guardar_mensaje, obtener_historial, tiene_lead_acti
 log = logging.getLogger(__name__)
 
 EXTRACCION_PROMPT = """
-Analizá esta conversación y extraé los datos del cliente si están disponibles.
+Analizá esta conversación y extraé los datos del cliente.
 Respondé SOLO con un JSON válido con este formato exacto (sin explicaciones):
 {
   "tiene_lead": true/false,
-  "nombre": "nombre del cliente o null",
-  "telefono": "teléfono o null",
+  "nombre": "nombre y apellido completo del cliente o null",
+  "telefono": "teléfono o WhatsApp del cliente o null",
   "descripcion": "resumen breve del pedido en 1-2 oraciones o null"
 }
 
-"tiene_lead" debe ser true solo si el cliente expresó un pedido concreto
-(mencionó qué necesita, material, medidas o cantidad).
+"tiene_lead" debe ser true SOLO si se cumplen LAS TRES condiciones:
+1. El cliente proporcionó su nombre y apellido
+2. El cliente proporcionó su teléfono o WhatsApp
+3. El cliente expresó un pedido o consulta concreta
 """
 
 
