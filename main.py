@@ -13,7 +13,8 @@ from fastapi.responses import PlainTextResponse
 import instagram
 import whatsapp
 from config import AUTO_RESPUESTA, IG_ACCOUNT_ID, SALUDO, VERIFY_TOKEN
-from db import es_usuario_nuevo, init_db, marcar_saludado, obtener_leads, stats
+from db import (es_usuario_nuevo, init_db, marcar_saludado, obtener_conversacion,
+                obtener_leads, obtener_usuarios, resetear_usuario, stats)
 from groq_ai import generar_respuesta
 
 logging.basicConfig(level=logging.INFO, format="%(levelname)s: %(message)s")
@@ -160,3 +161,19 @@ async def health():
 @app.get("/leads")
 async def ver_leads():
     return await obtener_leads()
+
+
+@app.get("/usuarios")
+async def ver_usuarios():
+    return await obtener_usuarios()
+
+
+@app.get("/conversacion/{user_id}")
+async def ver_conversacion(user_id: str):
+    return await obtener_conversacion(user_id)
+
+
+@app.delete("/usuario/{user_id}")
+async def borrar_usuario(user_id: str):
+    await resetear_usuario(user_id)
+    return {"ok": True, "mensaje": f"Usuario {user_id} reseteado"}

@@ -109,3 +109,27 @@ async def obtener_leads(limite: int = 50) -> list:
             (limite,)
         ).fetchall()
     return [dict(r) for r in rows]
+
+
+async def obtener_usuarios() -> list:
+    with _db() as con:
+        rows = con.execute(
+            "SELECT ig_user_id, canal, saludado, creado_en FROM usuarios ORDER BY creado_en DESC"
+        ).fetchall()
+    return [dict(r) for r in rows]
+
+
+async def obtener_conversacion(user_id: str) -> list:
+    with _db() as con:
+        rows = con.execute(
+            "SELECT rol, contenido, creado_en FROM historial WHERE ig_user_id = ? ORDER BY id ASC",
+            (user_id,)
+        ).fetchall()
+    return [dict(r) for r in rows]
+
+
+async def resetear_usuario(user_id: str):
+    with _db() as con:
+        con.execute("DELETE FROM usuarios WHERE ig_user_id = ?", (user_id,))
+        con.execute("DELETE FROM historial WHERE ig_user_id = ?", (user_id,))
+        con.execute("DELETE FROM leads WHERE ig_user_id = ?", (user_id,))
