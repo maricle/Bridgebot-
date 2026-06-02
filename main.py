@@ -15,7 +15,6 @@ import os
 import re
 import time
 
-import anthropic
 import httpx
 from dotenv import load_dotenv
 from fastapi import FastAPI, HTTPException, Request, Response
@@ -34,30 +33,17 @@ ODOO_URL              = os.environ["ODOO_URL"].rstrip("/")
 ODOO_API_KEY          = os.environ["ODOO_API_KEY"]
 ODOO_CHANNEL_ID       = int(os.environ["ODOO_LIVECHAT_CHANNEL_ID"])
 ODOO_DB               = os.environ["ODOO_DB"]
-ANTHROPIC_API_KEY     = os.environ["ANTHROPIC_API_KEY"]
 
 # ─── MODO ────────────────────────────────────────────────────────────────────
 # AUTO_RESPUESTA=true  → eco simple (para verificar webhook)
-# AUTO_RESPUESTA=false → Claude AI responde
+# AUTO_RESPUESTA=false → Odoo AI responde
 AUTO_RESPUESTA = os.environ.get("AUTO_RESPUESTA", "true").lower() == "true"
-
-SYSTEM_PROMPT = os.environ.get("BOT_SYSTEM_PROMPT", """
-Sos el asistente virtual de CleverCNC, una empresa especializada en máquinas CNC y placas de corte.
-Tu rol es responder consultas de clientes de forma amable, clara y profesional.
-Podés ayudar con: precios, disponibilidad, especificaciones técnicas, plazos de entrega y consultas generales.
-Si una consulta requiere atención personalizada o está fuera de tu conocimiento, avisá que un asesor se va a comunicar.
-Respondé siempre en español, de forma concisa (máximo 3 oraciones).
-""".strip())
 
 # ─── APP ─────────────────────────────────────────────────────────────────────
 app = FastAPI(title="BridgeBot — Instagram Odoo Agent", version="2.0.0")
 
-claude = anthropic.AsyncAnthropic(api_key=ANTHROPIC_API_KEY)
-
 # Sesiones activas: { instagram_user_id: odoo_discuss_channel_id }
 sesiones: dict[str, int] = {}
-# Historial de conversación por usuario para Claude
-historial: dict[str, list] = {}
 
 
 # ─── ODOO ─────────────────────────────────────────────────────────────────────
@@ -193,33 +179,6 @@ async def esperar_respuesta_agente(client: httpx.AsyncClient, channel_id: int, e
     return ultima_respuesta or "Hola, gracias por tu mensaje. Te respondemos a la brevedad."
 
 
-# ─── CLAUDE AI ────────────────────────────────────────────────────────────────
-
-async def generar_respuesta_claude(ig_user_id: str, mensaje: str) -> str:
-    """Genera una respuesta usando Claude, manteniendo historial por usuario."""
-    if ig_user_id not in historial:
-        historial[ig_user_id] = []
-
-    historial[ig_user_id].append({"role": "user", "content": mensaje})
-
-    response = await claude.messages.create(
-        model="claude-haiku-4-5-20251001",
-        max_tokens=400,
-        system=SYSTEM_PROMPT,
-        messages=historial[ig_user_id],
-    )
-
-    respuesta = response.content[0].text
-    historial[ig_user_id].append({"role": "assistant", "content": respuesta})
-
-    # Limitar historial a los últimos 20 turnos
-    if len(historial[ig_user_id]) > 20:
-        historial[ig_user_id] = historial[ig_user_id][-20:]
-
-    log.info("Claude respondió a IG user=%s: %s...", ig_user_id, respuesta[:80])
-    return respuesta
-
-
 # ─── INSTAGRAM ────────────────────────────────────────────────────────────────
 
 async def enviar_mensaje_instagram(client: httpx.AsyncClient, recipient_id: str, texto: str) -> None:
@@ -333,8 +292,10 @@ async def procesar_evento(data: dict):
                 log.info("Modo AUTO_RESPUESTA — eco enviado a %s", sender_id)
                 return
 
-            # ── Modo Claude AI ────────────────────────────────────────────────
-            respuesta = await generar_respuesta_claude(sender_id, mensaje)
+            # ── Modo Odoo AI ──────────────────────────────────────────────────
+            channel_id = await obtener_o_crear_sesion(client, sender_id, f"IG_{sender_id}")
+            await enviar_mensaje_odoo(client, channel_id, mensaje)
+            respuesta = await esperar_respuesta_agente(client, channel_id)
             await enviar_mensaje_instagram(client, sender_id, respuesta)
 
     except Exception as e:
