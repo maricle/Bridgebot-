@@ -33,17 +33,28 @@ ODOO_URL              = os.environ["ODOO_URL"].rstrip("/")
 ODOO_API_KEY          = os.environ["ODOO_API_KEY"]
 ODOO_CHANNEL_ID       = int(os.environ["ODOO_LIVECHAT_CHANNEL_ID"])
 ODOO_DB               = os.environ["ODOO_DB"]
+GROK_API_KEY          = os.environ["GROK_API_KEY"]
 
 # ─── MODO ────────────────────────────────────────────────────────────────────
-# AUTO_RESPUESTA=true  → eco simple (para verificar webhook)
-# AUTO_RESPUESTA=false → Odoo AI responde
+# AUTO_RESPUESTA=true  → saludo fijo de bienvenida
+# AUTO_RESPUESTA=false → Grok AI responde
 AUTO_RESPUESTA = os.environ.get("AUTO_RESPUESTA", "true").lower() == "true"
+
+SYSTEM_PROMPT = os.environ.get("BOT_SYSTEM_PROMPT",
+    "Sos el asistente virtual de Clever CNC, empresa especializada en máquinas CNC y servicios de corte. "
+    "Respondé consultas de clientes de forma amable, clara y profesional. "
+    "Podés ayudar con precios, disponibilidad, especificaciones técnicas y plazos de entrega. "
+    "Si necesitás escalar, avisá que un asesor se va a contactar. "
+    "Respondé siempre en español, de forma concisa (máximo 3 oraciones)."
+)
 
 # ─── APP ─────────────────────────────────────────────────────────────────────
 app = FastAPI(title="BridgeBot — Instagram Odoo Agent", version="2.0.0")
 
 # Sesiones activas: { instagram_user_id: odoo_discuss_channel_id }
 sesiones: dict[str, int] = {}
+# Historial de conversación por usuario para Grok
+historial: dict[str, list] = {}
 
 
 # ─── ODOO ─────────────────────────────────────────────────────────────────────
@@ -179,6 +190,42 @@ async def esperar_respuesta_agente(client: httpx.AsyncClient, channel_id: int, e
     return ultima_respuesta or "Hola, gracias por tu mensaje. Te respondemos a la brevedad."
 
 
+# ─── GROK AI ─────────────────────────────────────────────────────────────────
+
+async def generar_respuesta_grok(ig_user_id: str, mensaje: str) -> str:
+    """Genera una respuesta usando Grok, manteniendo historial por usuario."""
+    if ig_user_id not in historial:
+        historial[ig_user_id] = []
+
+    historial[ig_user_id].append({"role": "user", "content": mensaje})
+
+    async with httpx.AsyncClient() as client:
+        resp = await client.post(
+            "https://api.x.ai/v1/chat/completions",
+            headers={
+                "Authorization": f"Bearer {GROK_API_KEY}",
+                "Content-Type": "application/json",
+            },
+            json={
+                "model": "grok-3-latest",
+                "messages": [{"role": "system", "content": SYSTEM_PROMPT}] + historial[ig_user_id],
+                "max_tokens": 400,
+            },
+            timeout=30,
+        )
+        resp.raise_for_status()
+        data = resp.json()
+
+    respuesta = data["choices"][0]["message"]["content"].strip()
+    historial[ig_user_id].append({"role": "assistant", "content": respuesta})
+
+    if len(historial[ig_user_id]) > 20:
+        historial[ig_user_id] = historial[ig_user_id][-20:]
+
+    log.info("Grok respondió a IG user=%s: %s...", ig_user_id, respuesta[:80])
+    return respuesta
+
+
 # ─── INSTAGRAM ────────────────────────────────────────────────────────────────
 
 async def enviar_mensaje_instagram(client: httpx.AsyncClient, recipient_id: str, texto: str) -> None:
@@ -296,10 +343,8 @@ async def procesar_evento(data: dict):
                 log.info("Modo AUTO_RESPUESTA — eco enviado a %s", sender_id)
                 return
 
-            # ── Modo Odoo AI ──────────────────────────────────────────────────
-            channel_id = await obtener_o_crear_sesion(client, sender_id, f"IG_{sender_id}")
-            await enviar_mensaje_odoo(client, channel_id, mensaje)
-            respuesta = await esperar_respuesta_agente(client, channel_id)
+            # ── Modo Grok AI ──────────────────────────────────────────────────
+            respuesta = await generar_respuesta_grok(sender_id, mensaje)
             await enviar_mensaje_instagram(client, sender_id, respuesta)
 
     except Exception as e:
@@ -311,5 +356,5 @@ async def health():
     return {
         "status": "ok",
         "servicio": "BridgeBot",
-        "modo": "AUTO_RESPUESTA" if AUTO_RESPUESTA else "ODOO_AI",
+        "modo": "AUTO_RESPUESTA" if AUTO_RESPUESTA else "GROK_AI",
     }
