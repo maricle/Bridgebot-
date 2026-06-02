@@ -49,15 +49,24 @@ async def verificar_webhook(request: Request):
 
 
 @app.post("/webhook")
-async def recibir_instagram(request: Request):
+async def recibir_webhook(request: Request):
     payload = await request.body()
     firma   = request.headers.get("X-Hub-Signature-256", "")
     if not instagram.verificar_firma(payload, firma):
         raise HTTPException(status_code=401, detail="Firma inválida")
-    data  = await request.json()
-    entry = data.get("entry", [{}])[0]
-    log.info("IG webhook entry=%s", entry.get("id", "?"))
-    asyncio.create_task(procesar_instagram(data))
+    data   = await request.json()
+    objeto = data.get("object", "")
+
+    if objeto == "instagram":
+        entry = data.get("entry", [{}])[0]
+        log.info("IG webhook entry=%s", entry.get("id", "?"))
+        asyncio.create_task(procesar_instagram(data))
+    elif objeto == "whatsapp_business_account":
+        log.info("WA webhook recibido via /webhook")
+        asyncio.create_task(procesar_whatsapp(data))
+    else:
+        log.info("Webhook objeto desconocido: %s", objeto)
+
     return Response(status_code=200)
 
 
