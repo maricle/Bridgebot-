@@ -23,6 +23,8 @@ from fastapi.responses import PlainTextResponse
 load_dotenv()
 logging.basicConfig(level=logging.INFO, format="%(levelname)s: %(message)s")
 log = logging.getLogger(__name__)
+logging.getLogger("httpx").setLevel(logging.WARNING)
+logging.getLogger("httpcore").setLevel(logging.WARNING)
 
 # ─── CONFIG ──────────────────────────────────────────────────────────────────
 VERIFY_TOKEN          = os.environ["META_VERIFY_TOKEN"]
@@ -326,7 +328,9 @@ async def recibir_mensaje(request: Request):
         raise HTTPException(status_code=401, detail="Firma inválida")
 
     data = await request.json()
-    log.info("Evento recibido: %s", str(data)[:300])
+    objeto = data.get("object", "?")
+    entry  = data.get("entry", [{}])[0]
+    log.info("Webhook [%s] entry=%s", objeto, entry.get("id", "?"))
     asyncio.create_task(procesar_evento(data))
     return Response(status_code=200)
 
