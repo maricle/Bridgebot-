@@ -33,7 +33,7 @@ ODOO_URL              = os.environ["ODOO_URL"].rstrip("/")
 ODOO_API_KEY          = os.environ["ODOO_API_KEY"]
 ODOO_CHANNEL_ID       = int(os.environ["ODOO_LIVECHAT_CHANNEL_ID"])
 ODOO_DB               = os.environ["ODOO_DB"]
-GROK_API_KEY          = os.environ["GROK_API_KEY"]
+GROK_API_KEY          = os.environ.get("GROK_API_KEY", "")
 
 # ─── MODO ────────────────────────────────────────────────────────────────────
 # AUTO_RESPUESTA=true  → saludo fijo de bienvenida
