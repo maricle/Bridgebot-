@@ -161,37 +161,17 @@ async def test_odoo():
             "ODOO_DB": bool(ODOO_DB),
         }
 
-    resultados = {}
-    async with httpx.AsyncClient() as client:
-
-        # Intento 1 — REST API (Odoo 17+)
-        try:
-            r1 = await client.post(
-                f"{ODOO_URL}/api/crm.lead",
-                headers={"Authorization": f"Bearer {ODOO_API_KEY}", "Content-Type": "application/json"},
-                json={"name": "Test BridgeBot REST — eliminar"},
-                timeout=15,
-            )
-            resultados["rest_api"] = {"status": r1.status_code, "body": r1.text[:300]}
-        except Exception as e:
-            resultados["rest_api"] = {"error": str(e)}
-
-        # Intento 2 — JSON-RPC sin header DB
-        try:
-            r2 = await client.post(
-                f"{ODOO_URL}/web/dataset/call_kw",
-                headers={"Authorization": f"Bearer {ODOO_API_KEY}", "Content-Type": "application/json"},
-                json={"jsonrpc": "2.0", "method": "call", "params": {
-                    "model": "crm.lead", "method": "create",
-                    "args": [{"name": "Test BridgeBot RPC — eliminar"}], "kwargs": {},
-                }},
-                timeout=15,
-            )
-            resultados["jsonrpc"] = {"status": r2.status_code, "body": r2.text[:300]}
-        except Exception as e:
-            resultados["jsonrpc"] = {"error": str(e)}
-
-    return resultados
+    from odoo_crm import crear_lead
+    lead_id = await crear_lead(
+        nombre_cliente="Test BridgeBot",
+        telefono="0000000000",
+        descripcion="Lead de prueba — podés eliminarlo.",
+        canal="test",
+        user_id="test",
+    )
+    if lead_id:
+        return {"ok": True, "odoo_lead_id": lead_id}
+    return {"ok": False, "mensaje": "Revisá los logs de Railway para ver el error exacto"}
 
 
 @app.get("/health")

@@ -44,6 +44,7 @@ SYSTEM_PROMPT = os.environ.get("BOT_SYSTEM_PROMPT", _prompt_combinado)
 ODOO_URL     = os.environ.get("ODOO_URL", "").rstrip("/")
 ODOO_API_KEY = os.environ.get("ODOO_API_KEY", "")
 ODOO_DB      = os.environ.get("ODOO_DB", "")
+ODOO_USER    = os.environ.get("ODOO_USER", "")
 
 # ─── BASE DE DATOS ────────────────────────────────────────────────────────────
 TURSO_URL   = os.environ.get("TURSO_URL", "")
