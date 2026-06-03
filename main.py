@@ -183,9 +183,9 @@ async def test_odoo():
                 timeout=15,
             )
         return {
-            "ok": resp.status_code == 200 and "error" not in resp.json(),
+            "ok": False,
             "status_code": resp.status_code,
-            "respuesta": resp.json(),
+            "respuesta_raw": resp.text[:500],
         }
     except Exception as e:
         return {"ok": False, "error": str(e)}
