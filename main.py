@@ -170,7 +170,7 @@ async def test_odoo():
             "ODOO_URL": ODOO_URL or "VACÍO",
             "ODOO_API_KEY": f"{ODOO_API_KEY[:6]}..." if ODOO_API_KEY else "VACÍO",
             "ODOO_LOGIN": ODOO_LOGIN or "VACÍO",
-e        }
+        }
 
     from odoo_crm import crear_lead
     lead_id = await crear_lead(
