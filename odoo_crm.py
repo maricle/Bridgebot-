@@ -6,50 +6,53 @@ from config import ODOO_API_KEY, ODOO_DB, ODOO_URL, ODOO_USER
 
 log = logging.getLogger(__name__)
 
+JSONRPC_URL = f"{ODOO_URL}/jsonrpc" if ODOO_URL else ""
 
-async def _get_session(client: httpx.AsyncClient) -> str | None:
-    """Autentica con API key y devuelve el session_id."""
+
+async def _autenticar(client: httpx.AsyncClient) -> int | None:
+    """Retorna el uid numérico del usuario autenticado."""
     try:
         resp = await client.post(
-            f"{ODOO_URL}/web/session/authenticate",
+            JSONRPC_URL,
             json={
                 "jsonrpc": "2.0",
                 "method": "call",
+                "id": 1,
                 "params": {
-                    "db": ODOO_DB,
-                    "login": ODOO_USER,
-                    "password": ODOO_API_KEY,
+                    "service": "common",
+                    "method": "authenticate",
+                    "args": [ODOO_DB, ODOO_USER, ODOO_API_KEY, {}],
                 },
             },
             timeout=15,
         )
         data = resp.json()
-        if "error" in data:
-            log.error("Odoo auth error: %s", data["error"])
+        uid = data.get("result")
+        if not uid:
+            log.error("Odoo auth fallida: %s", data.get("error"))
             return None
-        session_id = resp.cookies.get("session_id")
-        if not session_id:
-            # Algunos setups lo devuelven en el body
-            session_id = data.get("result", {}).get("session_id")
-        return session_id
+        return uid
     except Exception as e:
         log.error("Error autenticando en Odoo: %s", e)
         return None
 
 
-async def _rpc(client: httpx.AsyncClient, session_id: str, model: str,
-               method: str, args: list, kwargs: dict = {}) -> any:
+async def _execute_kw(client: httpx.AsyncClient, uid: int, model: str,
+                      method: str, args: list, kwargs: dict = {}) -> any:
     resp = await client.post(
-        f"{ODOO_URL}/web/dataset/call_kw",
-        cookies={"session_id": session_id},
+        JSONRPC_URL,
         json={
             "jsonrpc": "2.0",
             "method": "call",
-            "params": {"model": model, "method": method, "args": args, "kwargs": kwargs},
+            "id": 2,
+            "params": {
+                "service": "object",
+                "method": "execute_kw",
+                "args": [ODOO_DB, uid, ODOO_API_KEY, model, method, args, kwargs],
+            },
         },
         timeout=15,
     )
-    resp.raise_for_status()
     data = resp.json()
     if "error" in data:
         raise Exception(f"Odoo RPC error: {data['error']}")
@@ -72,12 +75,11 @@ async def crear_lead(nombre_cliente: str, telefono: str, descripcion: str,
 
     try:
         async with httpx.AsyncClient() as client:
-            session_id = await _get_session(client)
-            if not session_id:
-                log.error("No se pudo obtener sesión de Odoo")
+            uid = await _autenticar(client)
+            if not uid:
                 return None
 
-            lead_id = await _rpc(client, session_id, "crm.lead", "create", [{
+            lead_id = await _execute_kw(client, uid, "crm.lead", "create", [{
                 "name": titulo,
                 "partner_name": nombre_cliente or "Sin nombre",
                 "mobile": telefono or "",
