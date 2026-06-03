@@ -2,7 +2,7 @@ import logging
 
 import httpx
 
-from config import ODOO_API_KEY, ODOO_DB, ODOO_URL, ODOO_USER
+from config import ODOO_API_KEY, ODOO_DB, ODOO_URL, ODOO_LOGIN
 
 log = logging.getLogger(__name__)
 
@@ -21,7 +21,7 @@ async def _autenticar(client: httpx.AsyncClient) -> int | None:
                 "params": {
                     "service": "common",
                     "method": "authenticate",
-                    "args": [ODOO_DB, ODOO_USER, ODOO_API_KEY, {}],
+                    "args": [ODOO_DB, ODOO_LOGIN, ODOO_API_KEY, {}],
                 },
             },
             timeout=15,
@@ -61,7 +61,7 @@ async def _execute_kw(client: httpx.AsyncClient, uid: int, model: str,
 
 async def crear_lead(nombre_cliente: str, telefono: str, descripcion: str,
                      canal: str = "instagram", user_id: str = "") -> int | None:
-    if not ODOO_URL or not ODOO_API_KEY or not ODOO_USER:
+    if not ODOO_URL or not ODOO_API_KEY or not ODOO_LOGIN:
         log.warning("Odoo CRM no configurado — lead no creado")
         return None
 
