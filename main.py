@@ -161,33 +161,37 @@ async def test_odoo():
             "ODOO_DB": bool(ODOO_DB),
         }
 
-    try:
-        async with httpx.AsyncClient() as client:
-            resp = await client.post(
-                f"{ODOO_URL}/web/dataset/call_kw",
-                headers={
-                    "Authorization": f"Bearer {ODOO_API_KEY}",
-                    "Content-Type": "application/json",
-                },
-                json={
-                    "jsonrpc": "2.0",
-                    "method": "call",
-                    "params": {
-                        "model": "crm.lead",
-                        "method": "create",
-                        "args": [{"name": "Test BridgeBot — eliminar", "partner_name": "Test"}],
-                        "kwargs": {},
-                    },
-                },
+    resultados = {}
+    async with httpx.AsyncClient() as client:
+
+        # Intento 1 — REST API (Odoo 17+)
+        try:
+            r1 = await client.post(
+                f"{ODOO_URL}/api/crm.lead",
+                headers={"Authorization": f"Bearer {ODOO_API_KEY}", "Content-Type": "application/json"},
+                json={"name": "Test BridgeBot REST — eliminar"},
                 timeout=15,
             )
-        return {
-            "ok": False,
-            "status_code": resp.status_code,
-            "respuesta_raw": resp.text[:500],
-        }
-    except Exception as e:
-        return {"ok": False, "error": str(e)}
+            resultados["rest_api"] = {"status": r1.status_code, "body": r1.text[:300]}
+        except Exception as e:
+            resultados["rest_api"] = {"error": str(e)}
+
+        # Intento 2 — JSON-RPC sin header DB
+        try:
+            r2 = await client.post(
+                f"{ODOO_URL}/web/dataset/call_kw",
+                headers={"Authorization": f"Bearer {ODOO_API_KEY}", "Content-Type": "application/json"},
+                json={"jsonrpc": "2.0", "method": "call", "params": {
+                    "model": "crm.lead", "method": "create",
+                    "args": [{"name": "Test BridgeBot RPC — eliminar"}], "kwargs": {},
+                }},
+                timeout=15,
+            )
+            resultados["jsonrpc"] = {"status": r2.status_code, "body": r2.text[:300]}
+        except Exception as e:
+            resultados["jsonrpc"] = {"error": str(e)}
+
+    return resultados
 
 
 @app.get("/health")
