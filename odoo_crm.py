@@ -82,7 +82,7 @@ async def crear_lead(nombre_cliente: str, telefono: str, descripcion: str,
             lead_id = await _execute_kw(client, uid, "crm.lead", "create", [{
                 "name": titulo,
                 "partner_name": nombre_cliente or "Sin nombre",
-                "mobile": telefono or "",
+                "phone": telefono or "",
                 "description": cuerpo,
             }])
 
