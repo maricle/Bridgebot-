@@ -150,17 +150,45 @@ async def procesar_whatsapp(data: dict):
 
 @app.get("/test-odoo")
 async def test_odoo():
-    from odoo_crm import crear_lead
-    lead_id = await crear_lead(
-        nombre_cliente="Test BridgeBot",
-        telefono="0000000000",
-        descripcion="Lead de prueba desde /test-odoo — podés eliminarlo.",
-        canal="test",
-        user_id="test",
-    )
-    if lead_id:
-        return {"ok": True, "odoo_lead_id": lead_id, "mensaje": "Lead creado correctamente en Odoo CRM"}
-    return {"ok": False, "mensaje": "No se pudo crear el lead — revisá ODOO_URL, ODOO_API_KEY y ODOO_DB en Railway"}
+    from config import ODOO_API_KEY, ODOO_DB, ODOO_URL
+
+    if not ODOO_URL or not ODOO_API_KEY or not ODOO_DB:
+        return {
+            "ok": False,
+            "error": "Variables faltantes",
+            "ODOO_URL": bool(ODOO_URL),
+            "ODOO_API_KEY": bool(ODOO_API_KEY),
+            "ODOO_DB": bool(ODOO_DB),
+        }
+
+    try:
+        async with httpx.AsyncClient() as client:
+            resp = await client.post(
+                f"{ODOO_URL}/web/dataset/call_kw",
+                headers={
+                    "Authorization": f"Bearer {ODOO_API_KEY}",
+                    "Content-Type": "application/json",
+                    "X-Odoo-Database": ODOO_DB,
+                },
+                json={
+                    "jsonrpc": "2.0",
+                    "method": "call",
+                    "params": {
+                        "model": "crm.lead",
+                        "method": "create",
+                        "args": [{"name": "Test BridgeBot — eliminar", "partner_name": "Test"}],
+                        "kwargs": {},
+                    },
+                },
+                timeout=15,
+            )
+        return {
+            "ok": resp.status_code == 200 and "error" not in resp.json(),
+            "status_code": resp.status_code,
+            "respuesta": resp.json(),
+        }
+    except Exception as e:
+        return {"ok": False, "error": str(e)}
 
 
 @app.get("/health")
