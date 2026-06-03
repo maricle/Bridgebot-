@@ -33,10 +33,13 @@ def _leer_archivo(nombre: str) -> str:
 
 _agente       = _leer_archivo("agente.txt")
 _conocimiento = _leer_archivo("conocimiento.txt")
+_precios      = _leer_archivo("precios.txt")
 
 _prompt_combinado = _agente
 if _conocimiento:
-    _prompt_combinado += f"\n\n## Información de productos y precios:\n{_conocimiento}"
+    _prompt_combinado += f"\n\n## Información de la empresa:\n{_conocimiento}"
+if _precios:
+    _prompt_combinado += f"\n\n## Lista de precios:\n{_precios}"
 
 SYSTEM_PROMPT = os.environ.get("BOT_SYSTEM_PROMPT", _prompt_combinado)
 
