@@ -33,15 +33,21 @@ def _leer_archivo(nombre: str) -> str:
 
 _agente       = _leer_archivo("agente.txt")
 _conocimiento = _leer_archivo("conocimiento.txt")
-_precios      = _leer_archivo("precios.txt")
 
-_prompt_combinado = _agente
-if _conocimiento:
-    _prompt_combinado += f"\n\n## Información de la empresa:\n{_conocimiento}"
-if _precios:
-    _prompt_combinado += f"\n\n## Lista de precios:\n{_precios}"
+# Los precios se cargan dinámicamente desde precios.py (Google Doc o archivo local)
+# SYSTEM_PROMPT se construye en runtime via get_system_prompt()
+_PROMPT_BASE = os.environ.get("BOT_SYSTEM_PROMPT", "")
 
-SYSTEM_PROMPT = os.environ.get("BOT_SYSTEM_PROMPT", _prompt_combinado)
+
+def get_system_prompt() -> str:
+    from precios import obtener as obtener_precios
+    base = _PROMPT_BASE or _agente
+    if _conocimiento:
+        base += f"\n\n## Información de la empresa:\n{_conocimiento}"
+    precios = obtener_precios()
+    if precios:
+        base += f"\n\n## Lista de precios:\n{precios}"
+    return base
 
 # ─── ODOO CRM ─────────────────────────────────────────────────────────────────
 ODOO_URL     = os.environ.get("ODOO_URL", "").rstrip("/")

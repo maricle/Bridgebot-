@@ -30,9 +30,20 @@ app = FastAPI(title="BridgeBot", version="5.0.0")
 @app.on_event("startup")
 async def startup():
     await init_db()
+    from precios import cargar as cargar_precios
+    await cargar_precios()
+    asyncio.create_task(_refresh_precios_loop())
     modo = "AUTO_RESPUESTA" if AUTO_RESPUESTA else "GROQ_AI"
     log.info("BridgeBot v5 iniciado — modo: %s", modo)
     log.info("GROQ configurado: %s", "SI" if __import__("config").GROQ_API_KEY else "NO")
+
+
+async def _refresh_precios_loop():
+    while True:
+        await asyncio.sleep(86400)  # 24 horas
+        from precios import cargar as cargar_precios
+        await cargar_precios()
+        log.info("Precios actualizados automáticamente")
 
 
 # ─── INSTAGRAM ────────────────────────────────────────────────────────────────
@@ -159,7 +170,7 @@ async def test_odoo():
             "ODOO_URL": ODOO_URL or "VACÍO",
             "ODOO_API_KEY": f"{ODOO_API_KEY[:6]}..." if ODOO_API_KEY else "VACÍO",
             "ODOO_LOGIN": ODOO_LOGIN or "VACÍO",
-        }
+e        }
 
     from odoo_crm import crear_lead
     lead_id = await crear_lead(
@@ -172,6 +183,18 @@ async def test_odoo():
     if lead_id:
         return {"ok": True, "odoo_lead_id": lead_id}
     return {"ok": False, "mensaje": "Revisá los logs de Railway para ver el error exacto"}
+
+
+@app.get("/actualizar-precios")
+async def actualizar_precios():
+    from precios import cargar as cargar_precios, obtener
+    await cargar_precios()
+    contenido = obtener()
+    return {
+        "ok": True,
+        "chars": len(contenido),
+        "preview": contenido[:200] + "..." if len(contenido) > 200 else contenido,
+    }
 
 
 @app.get("/health")

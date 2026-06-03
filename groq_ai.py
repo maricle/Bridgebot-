@@ -3,7 +3,7 @@ import logging
 
 import httpx
 
-from config import GROQ_API_KEY, SYSTEM_PROMPT
+from config import GROQ_API_KEY, get_system_prompt
 from db import guardar_lead, guardar_mensaje, obtener_historial, tiene_lead_activo
 
 log = logging.getLogger(__name__)
@@ -99,7 +99,7 @@ async def generar_respuesta(user_id: str, mensaje: str, canal: str = "instagram"
     historial = await obtener_historial(user_id)
 
     respuesta = await _llamar_groq(
-        [{"role": "system", "content": SYSTEM_PROMPT}] + historial
+        [{"role": "system", "content": get_system_prompt()}] + historial
     )
 
     if not respuesta:
