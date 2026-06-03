@@ -150,15 +150,15 @@ async def procesar_whatsapp(data: dict):
 
 @app.get("/test-odoo")
 async def test_odoo():
-    from config import ODOO_API_KEY, ODOO_DB, ODOO_URL
+    from config import ODOO_API_KEY, ODOO_URL, ODOO_USER
 
-    if not ODOO_URL or not ODOO_API_KEY or not ODOO_DB:
+    if not ODOO_URL or not ODOO_API_KEY or not ODOO_USER:
         return {
             "ok": False,
             "error": "Variables faltantes",
-            "ODOO_URL": bool(ODOO_URL),
-            "ODOO_API_KEY": bool(ODOO_API_KEY),
-            "ODOO_DB": bool(ODOO_DB),
+            "ODOO_URL": ODOO_URL or "VACÍO",
+            "ODOO_API_KEY": f"{ODOO_API_KEY[:6]}..." if ODOO_API_KEY else "VACÍO",
+            "ODOO_USER": ODOO_USER or "VACÍO",
         }
 
     from odoo_crm import crear_lead
