@@ -28,7 +28,6 @@ async def crear_lead(nombre_cliente: str, telefono: str, descripcion: str,
                 headers={
                     "Authorization": f"Bearer {ODOO_API_KEY}",
                     "Content-Type": "application/json",
-                    "X-Odoo-Database": ODOO_DB,
                 },
                 json={
                     "jsonrpc": "2.0",
