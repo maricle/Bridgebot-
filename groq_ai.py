@@ -3,7 +3,7 @@ import logging
 
 import httpx
 
-from config import OPENAI_API_KEY, get_system_prompt
+from config import ANTHROPIC_API_KEY, get_system_prompt
 from db import guardar_lead, guardar_mensaje, obtener_historial, tiene_lead_activo
 
 log = logging.getLogger(__name__)
@@ -25,37 +25,37 @@ Respondé SOLO con un JSON válido con este formato exacto (sin explicaciones):
 """
 
 
-async def _llamar_openai(messages: list, max_tokens: int = 400) -> str | None:
+async def _llamar_claude(messages: list, system: str = "", max_tokens: int = 400) -> str | None:
     try:
         async with httpx.AsyncClient() as client:
             resp = await client.post(
-                "https://api.openai.com/v1/chat/completions",
+                "https://api.anthropic.com/v1/messages",
                 headers={
-                    "Authorization": f"Bearer {OPENAI_API_KEY}",
-                    "Content-Type": "application/json",
+                    "x-api-key": ANTHROPIC_API_KEY,
+                    "anthropic-version": "2023-06-01",
+                    "content-type": "application/json",
                 },
                 json={
-                    "model": "gpt-4o-mini",
-                    "messages": messages,
+                    "model": "claude-haiku-4-5-20251001",
                     "max_tokens": max_tokens,
-                    "temperature": 0.7,
+                    "system": system,
+                    "messages": messages,
                 },
                 timeout=25,
             )
             if resp.status_code != 200:
-                log.error("OpenAI error %s: %s", resp.status_code, resp.text)
+                log.error("Claude error %s: %s", resp.status_code, resp.text)
                 return None
-            return resp.json()["choices"][0]["message"]["content"].strip()
+            return resp.json()["content"][0]["text"].strip()
     except httpx.TimeoutException:
-        log.error("OpenAI timeout")
+        log.error("Claude timeout")
         return None
     except Exception as e:
-        log.error("OpenAI excepción: %s", e)
+        log.error("Claude excepción: %s", e)
         return None
 
 
 async def _intentar_crear_lead(user_id: str, canal: str, historial: list):
-    """Pide a OpenAI que extraiga datos del lead y lo crea en Odoo si corresponde."""
     if await tiene_lead_activo(user_id):
         return
 
@@ -64,10 +64,11 @@ async def _intentar_crear_lead(user_id: str, canal: str, historial: list):
         for m in historial[-10:]
     )
 
-    resultado = await _llamar_openai([
-        {"role": "system", "content": EXTRACCION_PROMPT},
-        {"role": "user", "content": conversacion},
-    ], max_tokens=200)
+    resultado = await _llamar_claude(
+        messages=[{"role": "user", "content": conversacion}],
+        system=EXTRACCION_PROMPT,
+        max_tokens=200,
+    )
 
     if not resultado:
         return
@@ -75,7 +76,7 @@ async def _intentar_crear_lead(user_id: str, canal: str, historial: list):
     try:
         datos = json.loads(resultado)
     except json.JSONDecodeError:
-        log.warning("OpenAI no devolvió JSON válido para extracción: %s", resultado[:100])
+        log.warning("Claude no devolvió JSON válido para extracción: %s", resultado[:100])
         return
 
     if not datos.get("tiene_lead"):
@@ -92,14 +93,15 @@ async def _intentar_crear_lead(user_id: str, canal: str, historial: list):
 
 
 async def generar_respuesta(user_id: str, mensaje: str, canal: str = "instagram") -> str:
-    if not OPENAI_API_KEY:
+    if not ANTHROPIC_API_KEY:
         return "El servicio de IA no está configurado. Te contactamos a la brevedad."
 
     await guardar_mensaje(user_id, "user", mensaje)
     historial = await obtener_historial(user_id)
 
-    respuesta = await _llamar_openai(
-        [{"role": "system", "content": get_system_prompt()}] + historial
+    respuesta = await _llamar_claude(
+        messages=historial,
+        system=get_system_prompt(),
     )
 
     if not respuesta:
@@ -107,11 +109,10 @@ async def generar_respuesta(user_id: str, mensaje: str, canal: str = "instagram"
 
     await guardar_mensaje(user_id, "assistant", respuesta)
 
-    # Intentar extraer y crear lead cada 3 turnos del cliente
     turnos_cliente = sum(1 for m in historial if m["role"] == "user")
     if turnos_cliente >= 3 and turnos_cliente % 3 == 0:
         import asyncio
         asyncio.create_task(_intentar_crear_lead(user_id, canal, historial))
 
-    log.info("OpenAI [%s] user=%s: %s...", canal, user_id, respuesta[:80])
+    log.info("Claude [%s] user=%s: %s...", canal, user_id, respuesta[:80])
     return respuesta

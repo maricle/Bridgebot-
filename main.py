@@ -33,9 +33,9 @@ async def startup():
     from precios import cargar as cargar_precios
     await cargar_precios()
     asyncio.create_task(_refresh_precios_loop())
-    modo = "AUTO_RESPUESTA" if AUTO_RESPUESTA else "OPENAI"
+    modo = "AUTO_RESPUESTA" if AUTO_RESPUESTA else "CLAUDE"
     log.info("BridgeBot v5 iniciado — modo: %s", modo)
-    log.info("OpenAI configurado: %s", "SI" if __import__("config").OPENAI_API_KEY else "NO")
+    log.info("Claude configurado: %s", "SI" if __import__("config").ANTHROPIC_API_KEY else "NO")
 
 
 async def _refresh_precios_loop():
@@ -202,7 +202,7 @@ async def health():
     return {
         "status": "ok",
         "version": "5.0.0",
-        "modo": "AUTO_RESPUESTA" if AUTO_RESPUESTA else "OPENAI",
+        "modo": "AUTO_RESPUESTA" if AUTO_RESPUESTA else "CLAUDE",
         **(await stats()),
     }
 
