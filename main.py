@@ -1,10 +1,11 @@
 """
-BridgeBot — Instagram + WhatsApp → Groq AI Agent
+BridgeBot — Instagram + WhatsApp → Claude AI Agent
 Kleba Dev — 2026
 """
 
 import asyncio
 import logging
+from contextlib import asynccontextmanager
 
 import httpx
 from fastapi import FastAPI, HTTPException, Request, Response
@@ -22,28 +23,29 @@ log = logging.getLogger(__name__)
 logging.getLogger("httpx").setLevel(logging.WARNING)
 logging.getLogger("httpcore").setLevel(logging.WARNING)
 
-app = FastAPI(title="BridgeBot", version="5.0.0")
-
-
-# ─── STARTUP ──────────────────────────────────────────────────────────────────
-
-@app.on_event("startup")
-async def startup():
-    await init_db()
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    from config import ANTHROPIC_API_KEY
     from precios import cargar as cargar_precios
+    await init_db()
     await cargar_precios()
-    asyncio.create_task(_refresh_precios_loop())
+    task = asyncio.create_task(_refresh_precios_loop())
     modo = "AUTO_RESPUESTA" if AUTO_RESPUESTA else "CLAUDE"
     log.info("BridgeBot v5 iniciado — modo: %s", modo)
-    log.info("Claude configurado: %s", "SI" if __import__("config").ANTHROPIC_API_KEY else "NO")
+    log.info("Claude configurado: %s", "SI" if ANTHROPIC_API_KEY else "NO")
+    yield
+    task.cancel()
 
 
 async def _refresh_precios_loop():
+    from precios import cargar as cargar_precios
     while True:
-        await asyncio.sleep(86400)  # 24 horas
-        from precios import cargar as cargar_precios
+        await asyncio.sleep(86400)
         await cargar_precios()
         log.info("Precios actualizados automáticamente")
+
+
+app = FastAPI(title="BridgeBot", version="5.0.0", lifespan=lifespan)
 
 
 # ─── INSTAGRAM ────────────────────────────────────────────────────────────────
@@ -168,26 +170,16 @@ async def procesar_whatsapp(data: dict):
 @app.get("/test-claude")
 async def test_claude():
     from config import ANTHROPIC_API_KEY
+    from groq_ai import _llamar_claude
     if not ANTHROPIC_API_KEY:
         return {"ok": False, "error": "ANTHROPIC_API_KEY no configurada"}
-    async with httpx.AsyncClient() as client:
-        resp = await client.post(
-            "https://api.anthropic.com/v1/messages",
-            headers={
-                "x-api-key": ANTHROPIC_API_KEY,
-                "anthropic-version": "2023-06-01",
-                "content-type": "application/json",
-            },
-            json={
-                "model": "claude-haiku-4-5-20251001",
-                "max_tokens": 50,
-                "messages": [{"role": "user", "content": "Respondé solo: hola"}],
-            },
-            timeout=15,
-        )
-    if resp.status_code == 200:
-        return {"ok": True, "respuesta": resp.json()["content"][0]["text"]}
-    return {"ok": False, "status": resp.status_code, "error": resp.text}
+    respuesta = await _llamar_claude(
+        messages=[{"role": "user", "content": "Respondé solo: hola"}],
+        max_tokens=50,
+    )
+    if respuesta:
+        return {"ok": True, "respuesta": respuesta}
+    return {"ok": False, "error": "Claude no respondió — revisá los logs"}
 
 
 @app.get("/test-odoo")

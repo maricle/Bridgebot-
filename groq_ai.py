@@ -1,3 +1,4 @@
+import asyncio
 import json
 import logging
 
@@ -112,7 +113,6 @@ async def generar_respuesta(user_id: str, mensaje: str, canal: str = "instagram"
 
     turnos_cliente = sum(1 for m in messages if m["role"] == "user")
     if turnos_cliente >= 3 and turnos_cliente % 3 == 0:
-        import asyncio
         asyncio.create_task(_intentar_crear_lead(user_id, canal, messages))
 
     log.info("Claude [%s] user=%s: %s...", canal, user_id, respuesta[:80])

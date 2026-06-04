@@ -5,9 +5,16 @@ from dotenv import load_dotenv
 load_dotenv()
 
 # ─── META / INSTAGRAM ────────────────────────────────────────────────────────
-VERIFY_TOKEN    = os.environ["META_VERIFY_TOKEN"]
-APP_SECRET      = os.environ["META_APP_SECRET"]
-IG_ACCESS_TOKEN = os.environ["IG_ACCESS_TOKEN"]
+def _require(key: str) -> str:
+    val = os.environ.get(key, "")
+    if not val:
+        import logging
+        logging.getLogger(__name__).critical("Variable de entorno requerida no configurada: %s", key)
+    return val
+
+VERIFY_TOKEN    = _require("META_VERIFY_TOKEN")
+APP_SECRET      = _require("META_APP_SECRET")
+IG_ACCESS_TOKEN = _require("IG_ACCESS_TOKEN")
 IG_ACCOUNT_ID   = os.environ.get("IG_ACCOUNT_ID", "17841456843060136")
 
 # ─── WHATSAPP ─────────────────────────────────────────────────────────────────
