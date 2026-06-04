@@ -14,8 +14,8 @@ IG_ACCOUNT_ID   = os.environ.get("IG_ACCOUNT_ID", "17841456843060136")
 WA_ACCESS_TOKEN  = os.environ.get("WA_ACCESS_TOKEN", "")
 WA_PHONE_ID      = os.environ.get("WA_PHONE_ID", "")
 
-# ─── GROQ AI ──────────────────────────────────────────────────────────────────
-GROQ_API_KEY   = os.environ.get("GROQ_API_KEY", "")
+# ─── OPENAI ───────────────────────────────────────────────────────────────────
+OPENAI_API_KEY = os.environ.get("OPENAI_API_KEY", "")
 AUTO_RESPUESTA = os.environ.get("AUTO_RESPUESTA", "false").lower() == "true"
 
 SALUDO = os.environ.get(

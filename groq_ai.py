@@ -3,7 +3,7 @@ import logging
 
 import httpx
 
-from config import GROQ_API_KEY, get_system_prompt
+from config import OPENAI_API_KEY, get_system_prompt
 from db import guardar_lead, guardar_mensaje, obtener_historial, tiene_lead_activo
 
 log = logging.getLogger(__name__)
@@ -25,17 +25,17 @@ Respondé SOLO con un JSON válido con este formato exacto (sin explicaciones):
 """
 
 
-async def _llamar_groq(messages: list, max_tokens: int = 400) -> str | None:
+async def _llamar_openai(messages: list, max_tokens: int = 400) -> str | None:
     try:
         async with httpx.AsyncClient() as client:
             resp = await client.post(
-                "https://api.groq.com/openai/v1/chat/completions",
+                "https://api.openai.com/v1/chat/completions",
                 headers={
-                    "Authorization": f"Bearer {GROQ_API_KEY}",
+                    "Authorization": f"Bearer {OPENAI_API_KEY}",
                     "Content-Type": "application/json",
                 },
                 json={
-                    "model": "llama-3.3-70b-versatile",
+                    "model": "gpt-4o-mini",
                     "messages": messages,
                     "max_tokens": max_tokens,
                     "temperature": 0.7,
@@ -43,19 +43,19 @@ async def _llamar_groq(messages: list, max_tokens: int = 400) -> str | None:
                 timeout=25,
             )
             if resp.status_code != 200:
-                log.error("Groq error %s: %s", resp.status_code, resp.text)
+                log.error("OpenAI error %s: %s", resp.status_code, resp.text)
                 return None
             return resp.json()["choices"][0]["message"]["content"].strip()
     except httpx.TimeoutException:
-        log.error("Groq timeout")
+        log.error("OpenAI timeout")
         return None
     except Exception as e:
-        log.error("Groq excepción: %s", e)
+        log.error("OpenAI excepción: %s", e)
         return None
 
 
 async def _intentar_crear_lead(user_id: str, canal: str, historial: list):
-    """Pide a Groq que extraiga datos del lead y lo crea en Odoo si corresponde."""
+    """Pide a OpenAI que extraiga datos del lead y lo crea en Odoo si corresponde."""
     if await tiene_lead_activo(user_id):
         return
 
@@ -64,7 +64,7 @@ async def _intentar_crear_lead(user_id: str, canal: str, historial: list):
         for m in historial[-10:]
     )
 
-    resultado = await _llamar_groq([
+    resultado = await _llamar_openai([
         {"role": "system", "content": EXTRACCION_PROMPT},
         {"role": "user", "content": conversacion},
     ], max_tokens=200)
@@ -75,7 +75,7 @@ async def _intentar_crear_lead(user_id: str, canal: str, historial: list):
     try:
         datos = json.loads(resultado)
     except json.JSONDecodeError:
-        log.warning("Groq no devolvió JSON válido para extracción: %s", resultado[:100])
+        log.warning("OpenAI no devolvió JSON válido para extracción: %s", resultado[:100])
         return
 
     if not datos.get("tiene_lead"):
@@ -92,13 +92,13 @@ async def _intentar_crear_lead(user_id: str, canal: str, historial: list):
 
 
 async def generar_respuesta(user_id: str, mensaje: str, canal: str = "instagram") -> str:
-    if not GROQ_API_KEY:
+    if not OPENAI_API_KEY:
         return "El servicio de IA no está configurado. Te contactamos a la brevedad."
 
     await guardar_mensaje(user_id, "user", mensaje)
     historial = await obtener_historial(user_id)
 
-    respuesta = await _llamar_groq(
+    respuesta = await _llamar_openai(
         [{"role": "system", "content": get_system_prompt()}] + historial
     )
 
@@ -113,5 +113,5 @@ async def generar_respuesta(user_id: str, mensaje: str, canal: str = "instagram"
         import asyncio
         asyncio.create_task(_intentar_crear_lead(user_id, canal, historial))
 
-    log.info("Groq [%s] user=%s: %s...", canal, user_id, respuesta[:80])
+    log.info("OpenAI [%s] user=%s: %s...", canal, user_id, respuesta[:80])
     return respuesta
