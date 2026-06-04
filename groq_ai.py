@@ -96,23 +96,24 @@ async def generar_respuesta(user_id: str, mensaje: str, canal: str = "instagram"
     if not ANTHROPIC_API_KEY:
         return "El servicio de IA no está configurado. Te contactamos a la brevedad."
 
-    await guardar_mensaje(user_id, "user", mensaje)
     historial = await obtener_historial(user_id)
+    messages  = historial + [{"role": "user", "content": mensaje}]
 
     respuesta = await _llamar_claude(
-        messages=historial,
+        messages=messages,
         system=get_system_prompt(),
     )
 
     if not respuesta:
         return "Tardamos un poco más de lo normal. ¿Podés repetir tu consulta?"
 
+    await guardar_mensaje(user_id, "user", mensaje)
     await guardar_mensaje(user_id, "assistant", respuesta)
 
-    turnos_cliente = sum(1 for m in historial if m["role"] == "user")
+    turnos_cliente = sum(1 for m in messages if m["role"] == "user")
     if turnos_cliente >= 3 and turnos_cliente % 3 == 0:
         import asyncio
-        asyncio.create_task(_intentar_crear_lead(user_id, canal, historial))
+        asyncio.create_task(_intentar_crear_lead(user_id, canal, messages))
 
     log.info("Claude [%s] user=%s: %s...", canal, user_id, respuesta[:80])
     return respuesta
