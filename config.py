@@ -64,6 +64,6 @@ ODOO_DB      = os.environ.get("ODOO_DB", "")
 ODOO_LOGIN    = os.environ.get("ODOO_LOGIN", "")
 
 # ─── BASE DE DATOS ────────────────────────────────────────────────────────────
-TURSO_URL   = os.environ.get("TURSO_URL", "")
+TURSO_URL   = os.environ.get("TURSO_URL", "").replace("libsql://", "https://")
 TURSO_TOKEN = os.environ.get("TURSO_TOKEN", "")
 DB_PATH     = os.environ.get("DB_PATH", "/app/bridgebot.db")
