@@ -41,13 +41,7 @@ async def _llamar_claude(messages: list, system: str = "", max_tokens: int = 400
                     json={
                         "model": "claude-haiku-4-5-20251001",
                         "max_tokens": max_tokens,
-                        "system": [
-                            {
-                                "type": "text",
-                                "text": system,
-                                "cache_control": {"type": "ephemeral"},
-                            }
-                        ] if system else [],
+                        **({"system": [{"type": "text", "text": system, "cache_control": {"type": "ephemeral"}}]} if system else {}),
                         "messages": messages,
                     },
                     timeout=25,
