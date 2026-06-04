@@ -35,12 +35,19 @@ async def _llamar_claude(messages: list, system: str = "", max_tokens: int = 400
                     headers={
                         "x-api-key": ANTHROPIC_API_KEY,
                         "anthropic-version": "2023-06-01",
+                        "anthropic-beta": "prompt-caching-2024-07-31",
                         "content-type": "application/json",
                     },
                     json={
                         "model": "claude-haiku-4-5-20251001",
                         "max_tokens": max_tokens,
-                        "system": system,
+                        "system": [
+                            {
+                                "type": "text",
+                                "text": system,
+                                "cache_control": {"type": "ephemeral"},
+                            }
+                        ] if system else [],
                         "messages": messages,
                     },
                     timeout=25,
