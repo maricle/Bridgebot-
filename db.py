@@ -56,9 +56,14 @@ async def _turso(sql: str, args=()) -> dict:
             json={"requests": [{"type": "execute", "stmt": stmt}, {"type": "close"}]},
             timeout=10,
         )
-        resp.raise_for_status()
-    result = resp.json()["results"][0]["response"]["result"]
-    return result
+        if resp.status_code != 200:
+            log.error("Turso error %s — SQL: %s — Resp: %s", resp.status_code, sql[:80], resp.text[:200])
+            resp.raise_for_status()
+    result = resp.json()["results"][0]
+    if result.get("type") == "error":
+        log.error("Turso query error — SQL: %s — Error: %s", sql[:80], result.get("error"))
+        raise RuntimeError(result["error"]["message"])
+    return result["response"]["result"]
 
 
 def _rows(result: dict) -> list[dict]:
@@ -118,16 +123,20 @@ async def init_db():
     if USE_TURSO:
         requests = [{"type": "execute", "stmt": {"sql": sql}} for sql in _CREATE_TABLES]
         requests.append({"type": "close"})
-        async with httpx.AsyncClient() as client:
-            resp = await client.post(
-                f"{TURSO_URL}/v2/pipeline",
-                headers={"Authorization": f"Bearer {TURSO_TOKEN}"},
-                json={"requests": requests},
-                timeout=15,
-            )
-            resp.raise_for_status()
-        log.info("Turso DB lista: %s", TURSO_URL)
+        try:
+            async with httpx.AsyncClient() as client:
+                resp = await client.post(
+                    f"{TURSO_URL}/v2/pipeline",
+                    headers={"Authorization": f"Bearer {TURSO_TOKEN}"},
+                    json={"requests": requests},
+                    timeout=15,
+                )
+                resp.raise_for_status()
+            log.info("Turso DB lista: %s", TURSO_URL)
+        except Exception as e:
+            log.critical("ERROR conectando a Turso: %s — la app puede fallar", e)
     else:
+        log.warning("TURSO_URL/TURSO_TOKEN no configuradas — usando SQLite local (los datos se pierden en cada redeploy)")
         _sqlite_init()
         log.info("SQLite lista (local): %s", DB_PATH)
 
