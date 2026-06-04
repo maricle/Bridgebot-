@@ -165,6 +165,31 @@ async def procesar_whatsapp(data: dict):
 
 # ─── UTILS ────────────────────────────────────────────────────────────────────
 
+@app.get("/test-claude")
+async def test_claude():
+    from config import ANTHROPIC_API_KEY
+    if not ANTHROPIC_API_KEY:
+        return {"ok": False, "error": "ANTHROPIC_API_KEY no configurada"}
+    async with httpx.AsyncClient() as client:
+        resp = await client.post(
+            "https://api.anthropic.com/v1/messages",
+            headers={
+                "x-api-key": ANTHROPIC_API_KEY,
+                "anthropic-version": "2023-06-01",
+                "content-type": "application/json",
+            },
+            json={
+                "model": "claude-haiku-4-5-20251001",
+                "max_tokens": 50,
+                "messages": [{"role": "user", "content": "Respondé solo: hola"}],
+            },
+            timeout=15,
+        )
+    if resp.status_code == 200:
+        return {"ok": True, "respuesta": resp.json()["content"][0]["text"]}
+    return {"ok": False, "status": resp.status_code, "error": resp.text}
+
+
 @app.get("/test-odoo")
 async def test_odoo():
     from config import ODOO_API_KEY, ODOO_URL, ODOO_LOGIN
