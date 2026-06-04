@@ -17,6 +17,7 @@ WA_PHONE_ID      = os.environ.get("WA_PHONE_ID", "")
 # ─── ANTHROPIC / CLAUDE ───────────────────────────────────────────────────────
 ANTHROPIC_API_KEY = os.environ.get("ANTHROPIC_API_KEY", "")
 AUTO_RESPUESTA = os.environ.get("AUTO_RESPUESTA", "false").lower() == "true"
+EXCLUIR_BOT    = {u.strip() for u in os.environ.get("EXCLUIR_BOT", "").split(",") if u.strip()}
 
 SALUDO = os.environ.get(
     "SALUDO_BIENVENIDA",

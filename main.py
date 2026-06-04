@@ -12,7 +12,7 @@ from fastapi.responses import PlainTextResponse
 
 import instagram
 import whatsapp
-from config import AUTO_RESPUESTA, IG_ACCOUNT_ID, SALUDO, VERIFY_TOKEN
+from config import AUTO_RESPUESTA, EXCLUIR_BOT, IG_ACCOUNT_ID, SALUDO, VERIFY_TOKEN
 from db import (es_usuario_nuevo, init_db, marcar_saludado, obtener_conversacion,
                 obtener_leads, obtener_usuarios, resetear_usuario, stats)
 from groq_ai import generar_respuesta
@@ -91,6 +91,9 @@ async def procesar_instagram(data: dict):
         if sender_id == IG_ACCOUNT_ID:
             log.info("IG: mensaje propio, ignorando.")
             return
+        if sender_id in EXCLUIR_BOT:
+            log.info("IG: atendido por humano %s, ignorando.", sender_id)
+            return
 
         log.info("IG user=%s: %s", sender_id, mensaje[:100])
         async with httpx.AsyncClient() as client:
@@ -142,6 +145,9 @@ async def procesar_whatsapp(data: dict):
         sender_id, mensaje = whatsapp.extraer_mensaje(data)
         if not sender_id or not mensaje:
             log.info("WA: evento sin texto, ignorando.")
+            return
+        if sender_id in EXCLUIR_BOT:
+            log.info("WA: atendido por humano %s, ignorando.", sender_id)
             return
 
         log.info("WA user=%s: %s", sender_id, mensaje[:100])
