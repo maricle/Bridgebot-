@@ -27,33 +27,39 @@ Respondé SOLO con un JSON válido con este formato exacto (sin explicaciones):
 
 
 async def _llamar_claude(messages: list, system: str = "", max_tokens: int = 400) -> str | None:
-    try:
-        async with httpx.AsyncClient() as client:
-            resp = await client.post(
-                "https://api.anthropic.com/v1/messages",
-                headers={
-                    "x-api-key": ANTHROPIC_API_KEY,
-                    "anthropic-version": "2023-06-01",
-                    "content-type": "application/json",
-                },
-                json={
-                    "model": "claude-haiku-4-5-20251001",
-                    "max_tokens": max_tokens,
-                    "system": system,
-                    "messages": messages,
-                },
-                timeout=25,
-            )
-            if resp.status_code != 200:
-                log.error("Claude error %s: %s", resp.status_code, resp.text)
-                return None
-            return resp.json()["content"][0]["text"].strip()
-    except httpx.TimeoutException:
-        log.error("Claude timeout")
-        return None
-    except Exception as e:
-        log.error("Claude excepción: %s", e)
-        return None
+    for intento in range(3):
+        try:
+            async with httpx.AsyncClient() as client:
+                resp = await client.post(
+                    "https://api.anthropic.com/v1/messages",
+                    headers={
+                        "x-api-key": ANTHROPIC_API_KEY,
+                        "anthropic-version": "2023-06-01",
+                        "content-type": "application/json",
+                    },
+                    json={
+                        "model": "claude-haiku-4-5-20251001",
+                        "max_tokens": max_tokens,
+                        "system": system,
+                        "messages": messages,
+                    },
+                    timeout=25,
+                )
+            if resp.status_code == 200:
+                return resp.json()["content"][0]["text"].strip()
+            if resp.status_code == 429:
+                espera = 2 ** intento
+                log.warning("Claude rate limit — reintentando en %ss (intento %s/3)", espera, intento + 1)
+                await asyncio.sleep(espera)
+                continue
+            log.error("Claude error %s: %s", resp.status_code, resp.text[:200])
+            return None
+        except httpx.TimeoutException:
+            log.error("Claude timeout (intento %s/3)", intento + 1)
+        except Exception as e:
+            log.error("Claude excepción: %s", e)
+            return None
+    return None
 
 
 async def _intentar_crear_lead(user_id: str, canal: str, historial: list):

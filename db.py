@@ -158,7 +158,7 @@ async def marcar_saludado(user_id: str, canal: str = "instagram"):
     )
 
 
-async def obtener_historial(user_id: str, limite: int = 20) -> list:
+async def obtener_historial(user_id: str, limite: int = 10) -> list:
     rows = await _query(
         "SELECT rol, contenido FROM historial WHERE ig_user_id = ? ORDER BY id DESC LIMIT ?",
         (user_id, limite),
