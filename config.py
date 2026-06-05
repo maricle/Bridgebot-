@@ -18,8 +18,9 @@ IG_ACCESS_TOKEN = _require("IG_ACCESS_TOKEN")
 IG_ACCOUNT_ID   = os.environ.get("IG_ACCOUNT_ID", "17841456843060136")
 
 # ─── WHATSAPP ─────────────────────────────────────────────────────────────────
-WA_ACCESS_TOKEN  = os.environ.get("WA_ACCESS_TOKEN", "")
-WA_PHONE_ID      = os.environ.get("WA_PHONE_ID", "")
+WA_ACCESS_TOKEN    = os.environ.get("WA_ACCESS_TOKEN", "")
+WA_PHONE_ID        = os.environ.get("WA_PHONE_ID", "")
+WA_NUMERO_SOPORTE  = os.environ.get("WA_NUMERO_SOPORTE", "")  # número para derivar seguimiento de pedidos
 
 # ─── ANTHROPIC / CLAUDE ───────────────────────────────────────────────────────
 ANTHROPIC_API_KEY = os.environ.get("ANTHROPIC_API_KEY", "")
@@ -68,6 +69,8 @@ def get_system_prompt(con_precios: bool = False, canal: str = "instagram",
     base += f"\n\n## Canal actual: {canal.upper()}"
     if _conocimiento:
         base += f"\n\n## Información de la empresa:\n{_conocimiento}"
+    if WA_NUMERO_SOPORTE:
+        base += f"\n\n## Seguimiento de pedidos en curso:\nEnlace directo al equipo de producción: https://wa.me/{WA_NUMERO_SOPORTE}"
     if flujo == "carteleria" and _flujo_carteleria:
         base += f"\n\n## Flujo de atención — Cartelería y Gran Formato:\n{_flujo_carteleria}"
     elif flujo == "grafica" and _flujo_grafica:
