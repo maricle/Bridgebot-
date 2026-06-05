@@ -40,34 +40,43 @@ def _leer_archivo(nombre: str) -> str:
         return ""
 
 
-def _leer_conocimiento_completo() -> str:
-    """Carga conocimiento.txt + cualquier archivo numerado (01_*, 02_*, etc.)."""
+def _leer_conocimiento_base() -> str:
+    """Carga conocimiento.txt + 01_* (reglas generales, siempre presentes)."""
     import glob
     base_dir = os.path.dirname(os.path.abspath(__file__))
     knowledge_dir = os.path.join(base_dir, "knowledge")
     partes = [_leer_archivo("conocimiento.txt")]
-    for filepath in sorted(glob.glob(os.path.join(knowledge_dir, "[0-9]*.txt"))):
-        nombre = os.path.basename(filepath)
-        contenido = _leer_archivo(nombre)
+    for filepath in sorted(glob.glob(os.path.join(knowledge_dir, "01_*.txt"))):
+        contenido = _leer_archivo(os.path.basename(filepath))
         if contenido:
             partes.append(contenido)
     return "\n\n---\n\n".join(p for p in partes if p)
 
 
-_agente       = _leer_archivo("agente.txt")
-_conocimiento = _leer_conocimiento_completo()
+_agente              = _leer_archivo("agente.txt")
+_conocimiento        = _leer_conocimiento_base()
+_flujo_carteleria    = _leer_archivo("02_flujo_carteleria.txt")
+_flujo_grafica       = _leer_archivo("03_flujo_grafica_impresiones.txt")
 
-# Los precios se cargan dinámicamente desde precios.py (Google Doc o archivo local)
-# SYSTEM_PROMPT se construye en runtime via get_system_prompt()
 _PROMPT_BASE = os.environ.get("BOT_SYSTEM_PROMPT", "")
 
 
-def get_system_prompt(con_precios: bool = False, canal: str = "instagram") -> str:
+def get_system_prompt(con_precios: bool = False, canal: str = "instagram",
+                      flujo: str | None = None) -> str:
     from precios import obtener as obtener_precios
     base = _PROMPT_BASE or _agente
     base += f"\n\n## Canal actual: {canal.upper()}"
     if _conocimiento:
         base += f"\n\n## Información de la empresa:\n{_conocimiento}"
+    if flujo == "carteleria" and _flujo_carteleria:
+        base += f"\n\n## Flujo de atención — Cartelería y Gran Formato:\n{_flujo_carteleria}"
+    elif flujo == "grafica" and _flujo_grafica:
+        base += f"\n\n## Flujo de atención — Gráfica e Impresiones:\n{_flujo_grafica}"
+    elif flujo == "ambos":
+        if _flujo_carteleria:
+            base += f"\n\n## Flujo de atención — Cartelería y Gran Formato:\n{_flujo_carteleria}"
+        if _flujo_grafica:
+            base += f"\n\n## Flujo de atención — Gráfica e Impresiones:\n{_flujo_grafica}"
     if con_precios:
         precios = obtener_precios()
         if precios:

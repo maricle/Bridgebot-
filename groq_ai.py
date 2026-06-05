@@ -14,13 +14,38 @@ _PALABRAS_PRECIO = {
     # Clever CNC
     "placa", "ranurada", "laqueado", "laqueo", "lacar", "barniz",
     "corte cnc", "mecanizado", "ranurado",
-    # Grupo Ideas
-    "lona", "vinilo", "banner", "cartel", "carteleria", "cartelería",
+}
+
+_PALABRAS_CARTELERIA = {
+    "lona", "vinilo", "banner", "cartel", "letras", "acrilico", "acrílico",
+    "corpórea", "corpóreas", "señaletica", "señalética", "plotter",
+    "pvc", "polifan", "roll up", "portabanner", "fly banner", "blue back",
+    "canvas", "tela flag", "gigantografia", "gigantografía",
+    "rotulo", "rótulo", "ploteo", "aviso", "mesh", "backlight", "blackout",
+    "fachada", "vidriera", "local", "cartelería",
+}
+
+_PALABRAS_GRAFICA = {
     "impresion", "impresión", "copia", "copias", "folleto",
     "tarjeta", "talonario", "recetario", "dtf", "adhesivo", "sello",
-    "afiche", "poster", "póster", "roll up", "portabanner",
-    "a4", "a3", "plastificado", "laminado",
+    "plastificado", "encuadernacion", "encuadernación",
+    "fotocopia", "a4", "a3", "sa3", "super a3",
+    "afiche", "poster", "póster", "flyer", "folleto",
 }
+
+
+def _detectar_flujo(mensaje: str) -> str | None:
+    texto = mensaje.lower()
+    carteleria = any(p in texto for p in _PALABRAS_CARTELERIA)
+    grafica    = any(p in texto for p in _PALABRAS_GRAFICA)
+    if carteleria and grafica:
+        return "ambos"
+    if carteleria:
+        return "carteleria"
+    if grafica:
+        return "grafica"
+    return None
+
 
 def _pide_precio(mensaje: str) -> bool:
     texto = mensaje.lower()
@@ -181,7 +206,8 @@ async def generar_respuesta(user_id: str, mensaje: str, canal: str = "instagram"
     messages         = historial + [{"role": "user", "content": mensaje}]
 
     con_precios = _pide_precio(mensaje)
-    system      = get_system_prompt(con_precios=con_precios, canal=canal)
+    flujo       = _detectar_flujo(mensaje)
+    system      = get_system_prompt(con_precios=con_precios, canal=canal, flujo=flujo)
 
     if datos_cliente.get("nombre") or datos_cliente.get("telefono"):
         system += "\n\n## Datos conocidos del cliente"
