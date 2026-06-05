@@ -74,7 +74,8 @@ Respondé SOLO con un JSON válido con este formato exacto (sin explicaciones):
 2. Se conoce el teléfono o WhatsApp del cliente (puede venir de los datos conocidos al inicio)
 3. El cliente tiene un pedido o consulta concreta (producto o proyecto definido)
 
-Si hay datos conocidos marcados con [Nombre conocido] o [Teléfono conocido], usarlos directamente sin requerir que el cliente los repita.
+Si hay datos conocidos marcados con [Nombre conocido] o [Teléfono conocido], usarlos por defecto.
+EXCEPCIÓN: si el cliente declaró explícitamente datos DISTINTOS en la conversación (por ejemplo "mi nombre es X" o "el teléfono es Y" o "no, usá el..."), usar los datos que el cliente proporcionó — no los datos previos.
 
 "destino" debe ser:
 - "carteleria" si el pedido involucra letras corpóreas, señalética corpórea, acrílico con iluminación LED, estructuras o carteles de fachada tridimensionales
@@ -225,7 +226,13 @@ async def generar_respuesta(user_id: str, mensaje: str, canal: str = "instagram"
             system += f"\nNombre: {datos_cliente['nombre']}"
         if datos_cliente.get("telefono"):
             system += f"\nTeléfono/WA: {datos_cliente['telefono']}"
-        system += "\nAntes de generar un nuevo pedido, confirmá con el cliente usando exactamente este formato: \"Voy a generar el pedido a nombre de [nombre], ¿uso el mismo número de teléfono?\" Esperá confirmación antes de cerrar."
+        system += (
+            "\nAntes de generar un nuevo pedido, confirmá con el cliente: "
+            "\"Voy a generar el pedido a nombre de [nombre], ¿uso el mismo número de teléfono?\"\n"
+            "- Si confirma: registrá el pedido con esos datos.\n"
+            "- Si corrige el nombre o el teléfono: aceptá el dato nuevo, repetilo para confirmar "
+            "y recién entonces registrá el pedido con la información actualizada."
+        )
 
     respuesta = await _llamar_claude(messages=messages, system=system)
     if con_precios:
