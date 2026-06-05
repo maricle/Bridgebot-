@@ -136,9 +136,10 @@ async def init_db():
         except Exception as e:
             log.critical("ERROR conectando a Turso: %s — la app puede fallar", e)
         for col_sql in [
-            "ALTER TABLE usuarios ADD COLUMN cerrada INTEGER DEFAULT 0",
-            "ALTER TABLE usuarios ADD COLUMN nombre  TEXT    DEFAULT ''",
-            "ALTER TABLE usuarios ADD COLUMN telefono TEXT   DEFAULT ''",
+            "ALTER TABLE usuarios ADD COLUMN cerrada      INTEGER DEFAULT 0",
+            "ALTER TABLE usuarios ADD COLUMN nombre       TEXT    DEFAULT ''",
+            "ALTER TABLE usuarios ADD COLUMN telefono     TEXT    DEFAULT ''",
+            "ALTER TABLE usuarios ADD COLUMN canonical_id TEXT    DEFAULT ''",
         ]:
             try:
                 await _turso(col_sql)
@@ -149,9 +150,10 @@ async def init_db():
         _sqlite_init()
         log.info("SQLite lista (local): %s", DB_PATH)
         for col_sql in [
-            "ALTER TABLE usuarios ADD COLUMN cerrada  INTEGER DEFAULT 0",
-            "ALTER TABLE usuarios ADD COLUMN nombre   TEXT    DEFAULT ''",
-            "ALTER TABLE usuarios ADD COLUMN telefono TEXT    DEFAULT ''",
+            "ALTER TABLE usuarios ADD COLUMN cerrada      INTEGER DEFAULT 0",
+            "ALTER TABLE usuarios ADD COLUMN nombre       TEXT    DEFAULT ''",
+            "ALTER TABLE usuarios ADD COLUMN telefono     TEXT    DEFAULT ''",
+            "ALTER TABLE usuarios ADD COLUMN canonical_id TEXT    DEFAULT ''",
         ]:
             try:
                 with sqlite3.connect(DB_PATH) as con:
@@ -221,6 +223,32 @@ async def resetear_cerrada(user_id: str):
     await _run("UPDATE usuarios SET cerrada = 0 WHERE ig_user_id = ?", (user_id,))
 
 
+async def obtener_canonical_id(user_id: str) -> str:
+    """Devuelve el canonical_id si el usuario está vinculado, sino el mismo user_id."""
+    rows = await _query(
+        "SELECT canonical_id FROM usuarios WHERE ig_user_id = ?", (user_id,)
+    )
+    if rows and rows[0].get("canonical_id"):
+        return rows[0]["canonical_id"]
+    return user_id
+
+
+async def buscar_usuario_por_telefono(telefono: str) -> str | None:
+    """Busca un usuario de WhatsApp con ese número — su ig_user_id ES el teléfono."""
+    rows = await _query(
+        "SELECT ig_user_id FROM usuarios WHERE canal = 'whatsapp' AND (ig_user_id = ? OR telefono = ?)",
+        (telefono, telefono),
+    )
+    return rows[0]["ig_user_id"] if rows else None
+
+
+async def vincular_usuario(user_id: str, canonical_id: str):
+    await _run(
+        "UPDATE usuarios SET canonical_id = ? WHERE ig_user_id = ?", (canonical_id, user_id)
+    )
+    log.info("Usuario %s vinculado a canonical %s", user_id, canonical_id)
+
+
 async def guardar_datos_cliente(user_id: str, nombre: str = "", telefono: str = ""):
     if nombre and telefono:
         await _run(
@@ -243,8 +271,9 @@ async def obtener_datos_cliente(user_id: str) -> dict:
 
 
 async def conversacion_cerrada(user_id: str) -> bool:
+    canonical = await obtener_canonical_id(user_id)
     rows = await _query(
-        "SELECT cerrada FROM usuarios WHERE ig_user_id = ? AND cerrada = 1", (user_id,)
+        "SELECT cerrada FROM usuarios WHERE ig_user_id = ? AND cerrada = 1", (canonical,)
     )
     return bool(rows)
 

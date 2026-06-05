@@ -19,9 +19,10 @@ _PALABRAS_PRECIO = {
 def _pide_precio(mensaje: str) -> bool:
     texto = mensaje.lower()
     return any(p in texto for p in _PALABRAS_PRECIO)
-from db import (cerrar_conversacion, guardar_datos_cliente, guardar_lead,
-                guardar_mensaje, obtener_datos_cliente, obtener_historial,
-                tiene_lead_activo)
+from db import (buscar_usuario_por_telefono, cerrar_conversacion,
+                guardar_datos_cliente, guardar_lead, guardar_mensaje,
+                obtener_canonical_id, obtener_datos_cliente, obtener_historial,
+                tiene_lead_activo, vincular_usuario)
 
 log = logging.getLogger(__name__)
 
@@ -81,13 +82,16 @@ async def _llamar_claude(messages: list, system: str = "", max_tokens: int = 400
     return None
 
 
-async def _intentar_crear_lead(user_id: str, canal: str, historial: list):
-    datos_cliente = await obtener_datos_cliente(user_id)
+async def _intentar_crear_lead(user_id: str, canal: str, historial: list,
+                               canonical_id: str | None = None):
+    if canonical_id is None:
+        canonical_id = await obtener_canonical_id(user_id)
+    datos_cliente = await obtener_datos_cliente(canonical_id)
 
     # Para WA el user_id ES el teléfono — guardarlo si aún no está
     if canal == "whatsapp" and not datos_cliente.get("telefono"):
-        await guardar_datos_cliente(user_id, telefono=user_id)
-        datos_cliente["telefono"] = user_id
+        await guardar_datos_cliente(canonical_id, telefono=canonical_id)
+        datos_cliente["telefono"] = canonical_id
 
     # Inyectar datos conocidos al inicio del contexto de extracción
     prefijo = ""
@@ -133,22 +137,31 @@ async def _intentar_crear_lead(user_id: str, canal: str, historial: list):
 
     # En WhatsApp el user_id ES el número de teléfono
     if canal == "whatsapp" and not telefono:
-        telefono = user_id
+        telefono = canonical_id
+
+    # Si IG y tenemos teléfono → buscar usuario WA para vincular
+    if canal == "instagram" and telefono and canonical_id == user_id:
+        wa_id = await buscar_usuario_por_telefono(telefono)
+        if wa_id and wa_id != user_id:
+            await vincular_usuario(user_id, wa_id)
+            canonical_id = wa_id
+            log.info("IG user %s vinculado a WA user %s", user_id, wa_id)
 
     from odoo_crm import crear_lead
     odoo_id = await crear_lead(nombre, telefono, descripcion, canal, user_id) or 0
-    await guardar_lead(user_id, descripcion, canal, odoo_id)
-    await guardar_datos_cliente(user_id, nombre=nombre, telefono=telefono)
-    await cerrar_conversacion(user_id)
-    log.info("Lead creado y conversación cerrada — user=%s odoo_id=%s", user_id, odoo_id)
+    await guardar_lead(canonical_id, descripcion, canal, odoo_id)
+    await guardar_datos_cliente(canonical_id, nombre=nombre, telefono=telefono)
+    await cerrar_conversacion(canonical_id)
+    log.info("Lead creado y conversación cerrada — canonical=%s odoo_id=%s", canonical_id, odoo_id)
 
 
 async def generar_respuesta(user_id: str, mensaje: str, canal: str = "instagram") -> str:
     if not ANTHROPIC_API_KEY:
         return "El servicio de IA no está configurado. Te contactamos a la brevedad."
 
-    historial        = await obtener_historial(user_id)
-    datos_cliente    = await obtener_datos_cliente(user_id)
+    canonical_id     = await obtener_canonical_id(user_id)
+    historial        = await obtener_historial(canonical_id)
+    datos_cliente    = await obtener_datos_cliente(canonical_id)
     messages         = historial + [{"role": "user", "content": mensaje}]
 
     con_precios = _pide_precio(mensaje)
@@ -169,10 +182,10 @@ async def generar_respuesta(user_id: str, mensaje: str, canal: str = "instagram"
     if not respuesta:
         return "Tardamos un poco más de lo normal. ¿Podés repetir tu consulta?"
 
-    await guardar_mensaje(user_id, "user", mensaje)
-    await guardar_mensaje(user_id, "assistant", respuesta)
+    await guardar_mensaje(canonical_id, "user", mensaje)
+    await guardar_mensaje(canonical_id, "assistant", respuesta)
 
-    asyncio.create_task(_intentar_crear_lead(user_id, canal, messages))
+    asyncio.create_task(_intentar_crear_lead(user_id, canal, messages, canonical_id))
 
     log.info("Claude [%s] user=%s: %s...", canal, user_id, respuesta[:80])
     return respuesta
