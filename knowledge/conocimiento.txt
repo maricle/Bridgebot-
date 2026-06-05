@@ -1,57 +1,36 @@
 # ─── EMPRESA ──────────────────────────────────────────────────────────────────
 Nombre: Clever CNC
 Rubro: Corte CNC, laqueado, ranurado y mecanizado de materiales
-Ubicación: [Ciudad, Provincia]
-Teléfono: [Teléfono]
-Email: [Email]
+Ubicación: Corrientes, Argentina
 Web: clevercnc.com.ar
-Horario de atención: [Ej: Lunes a Viernes 8 a 18hs]
 
 # ─── SERVICIOS ────────────────────────────────────────────────────────────────
 - Corte CNC de placas (MDF, melamina, madera, aluminio, acrílico)
-- Laqueado de piezas
+- Laqueado poliuretánico (mate, satinado, brillante)
 - Ranurado y mecanizado
-- [Agregar más servicios]
+- Fabricación de muebles y piezas a medida
+- Paneles calados y decorativos
 
 # ─── MATERIALES Y ESPESORES ───────────────────────────────────────────────────
 - MDF: 3mm, 6mm, 9mm, 12mm, 15mm, 18mm, 25mm
 - Melamina: 18mm, 25mm
-- Acrílico: [espesores disponibles]
-- Aluminio: [espesores disponibles]
-- [Agregar más materiales]
-
-# ─── PRECIOS ──────────────────────────────────────────────────────────────────
-[Completar con lista de precios actual]
-Ejemplo:
-- Corte CNC MDF 18mm: $X por metro lineal
-- Laqueado: $X por m2
-- Nota: los precios pueden variar según cantidad y complejidad del trabajo
-
-# ─── PLAZOS DE ENTREGA ────────────────────────────────────────────────────────
-- Trabajos simples: [Ej: 3 a 5 días hábiles]
-- Trabajos complejos: [Ej: 7 a 10 días hábiles]
-- Urgencias: consultar disponibilidad
-
-# ─── CÓMO PEDIR PRESUPUESTO ───────────────────────────────────────────────────
-Para armar un presupuesto necesitamos:
-1. Tipo de trabajo (corte, laqueado, ranurado, etc.)
-2. Material y espesor
-3. Medidas (ancho x largo en mm o cm)
-4. Cantidad de piezas
-5. Si tiene diseño propio o necesita asesoramiento
+- Acrílico, aluminio: consultar disponibilidad
 
 # ─── PREGUNTAS FRECUENTES ─────────────────────────────────────────────────────
 P: ¿Trabajan con diseños propios?
-R: Sí, aceptamos archivos DXF, DWG, PDF vectorial o SVG.
+R: Sí, aceptamos DXF, DWG, PDF vectorial o SVG.
 
 P: ¿Tienen mínimo de pedido?
-R: NO
+R: No, no hay mínimo.
 
 P: ¿Hacen envíos?
-R: si, lo ideal es coordinar 
+R: Sí, hacemos envíos. Coordinar con el equipo.
 
 P: ¿Aceptan pagos en cuotas?
-R: por el momento no, solo dos vece, entrega mas el total al finalizar el proyecto
+R: No. El pago es en dos partes: una entrega al inicio y el resto al finalizar el trabajo.
 
-# ─── ZONA DE COBERTURA ────────────────────────────────────────────────────────
-Somos de Corrientes, hacemos envios  al interior, Formosa y Resistencia.
+P: ¿Dónde están ubicados?
+R: En Corrientes. También hacemos envíos al interior, Formosa y Resistencia.
+
+# ─── PLAZOS ────────────────────────────────────────────────────────────────────
+- Los plazos dependen del trabajo. Para urgencias, consultar disponibilidad con el equipo.
