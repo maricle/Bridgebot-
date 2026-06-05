@@ -33,5 +33,5 @@ P: ¿Dónde están ubicados?
 R: En Corrientes. También hacemos envíos al interior, Formosa y Resistencia.
 
 # ─── PLAZOS ────────────────────────────────────────────────────────────────────
-- Las entregas pueden ser en el día, según disponibilidad.
+- Las entregas pueden ser en el día, según disponibilidad, o retiro en el local. se coordina fecha y horario.
 - Los plazos dependen del trabajo. Para urgencias, consultar disponibilidad con el equipo.
