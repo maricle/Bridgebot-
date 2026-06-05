@@ -50,10 +50,11 @@ def _detectar_flujo(mensaje: str) -> str | None:
 def _pide_precio(mensaje: str) -> bool:
     texto = mensaje.lower()
     return any(p in texto for p in _PALABRAS_PRECIO)
-from db import (buscar_usuario_por_telefono, cerrar_conversacion,
-                guardar_datos_cliente, guardar_lead, guardar_mensaje,
-                obtener_archivos, obtener_canonical_id, obtener_datos_cliente,
-                obtener_historial, tiene_lead_activo, vincular_usuario)
+from db import (buscar_cliente_odoo_por_telefono, buscar_usuario_por_telefono,
+                cerrar_conversacion, guardar_datos_cliente, guardar_lead,
+                guardar_mensaje, obtener_archivos, obtener_canonical_id,
+                obtener_datos_cliente, obtener_historial, tiene_lead_activo,
+                vincular_usuario)
 
 log = logging.getLogger(__name__)
 
@@ -200,10 +201,19 @@ async def generar_respuesta(user_id: str, mensaje: str, canal: str = "instagram"
     if not ANTHROPIC_API_KEY:
         return "El servicio de IA no está configurado. Te contactamos a la brevedad."
 
-    canonical_id     = await obtener_canonical_id(user_id)
-    historial        = await obtener_historial(canonical_id)
-    datos_cliente    = await obtener_datos_cliente(canonical_id)
-    messages         = historial + [{"role": "user", "content": mensaje}]
+    canonical_id  = await obtener_canonical_id(user_id)
+    historial     = await obtener_historial(canonical_id)
+    datos_cliente = await obtener_datos_cliente(canonical_id)
+
+    # Para WA: si no tenemos nombre, buscar en clientes sincronizados de Odoo
+    if canal == "whatsapp" and not datos_cliente.get("nombre"):
+        odoo_match = await buscar_cliente_odoo_por_telefono(canonical_id)
+        if odoo_match and odoo_match.get("nombre"):
+            await guardar_datos_cliente(canonical_id, nombre=odoo_match["nombre"])
+            datos_cliente["nombre"] = odoo_match["nombre"]
+            log.info("Cliente WA %s identificado desde Odoo: %s", canonical_id, odoo_match["nombre"])
+
+    messages = historial + [{"role": "user", "content": mensaje}]
 
     con_precios = _pide_precio(mensaje)
     flujo       = _detectar_flujo(mensaje)

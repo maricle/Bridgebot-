@@ -11,6 +11,13 @@ log = logging.getLogger(__name__)
 USE_TURSO = bool(TURSO_URL and TURSO_TOKEN)
 
 _CREATE_TABLES = [
+    """CREATE TABLE IF NOT EXISTS clientes_odoo (
+        odoo_id     INTEGER PRIMARY KEY,
+        nombre      TEXT,
+        telefono    TEXT,
+        email       TEXT,
+        synced_at   TEXT DEFAULT (datetime('now'))
+    )""",
     """CREATE TABLE IF NOT EXISTS archivos (
         id          INTEGER PRIMARY KEY AUTOINCREMENT,
         ig_user_id  TEXT NOT NULL,
@@ -124,6 +131,35 @@ async def _run(sql: str, args=()) -> int:
     if USE_TURSO:
         return _last_id(await _turso(sql, args))
     return _sqlite_run(sql, args)
+
+
+async def _batch_run(statements: list[tuple], chunk: int = 200):
+    """Ejecuta múltiples writes en pipelines de hasta `chunk` statements."""
+    if not statements:
+        return
+    if USE_TURSO:
+        for i in range(0, len(statements), chunk):
+            bloque = statements[i:i + chunk]
+            requests = []
+            for sql, args in bloque:
+                stmt = {"sql": sql}
+                if args:
+                    stmt["args"] = [_arg(a) for a in args]
+                requests.append({"type": "execute", "stmt": stmt})
+            requests.append({"type": "close"})
+            async with httpx.AsyncClient() as client:
+                resp = await client.post(
+                    f"{TURSO_URL}/v2/pipeline",
+                    headers={"Authorization": f"Bearer {TURSO_TOKEN}"},
+                    json={"requests": requests},
+                    timeout=30,
+                )
+                resp.raise_for_status()
+    else:
+        with sqlite3.connect(DB_PATH) as con:
+            for sql, args in statements:
+                con.execute(sql, args)
+            con.commit()
 
 
 # ─── INIT ──────────────────────────────────────────────────────────────────────
@@ -333,3 +369,39 @@ async def resetear_usuario(user_id: str):
     await _run("DELETE FROM historial WHERE ig_user_id = ?", (user_id,))
     await _run("DELETE FROM leads    WHERE ig_user_id = ?", (user_id,))
     await _run("DELETE FROM archivos WHERE ig_user_id = ?", (user_id,))
+
+
+# ─── CLIENTES ODOO (sync nocturno) ────────────────────────────────────────────
+
+async def upsert_clientes_odoo(clientes: list[dict]):
+    """Bulk upsert de partners de Odoo. clientes: [{odoo_id, nombre, telefono, email}]"""
+    if not clientes:
+        return
+    statements = [
+        (
+            """INSERT INTO clientes_odoo (odoo_id, nombre, telefono, email, synced_at)
+               VALUES (?, ?, ?, ?, datetime('now'))
+               ON CONFLICT(odoo_id) DO UPDATE SET
+                   nombre=excluded.nombre,
+                   telefono=excluded.telefono,
+                   email=excluded.email,
+                   synced_at=excluded.synced_at""",
+            (c["odoo_id"], c["nombre"], c["telefono"], c.get("email", "")),
+        )
+        for c in clientes
+    ]
+    await _batch_run(statements)
+    log.info("Sync Odoo: %d clientes actualizados en DB local", len(clientes))
+
+
+async def buscar_cliente_odoo_por_telefono(telefono: str) -> dict | None:
+    """Busca por los últimos 10 dígitos (ignora prefijos de país y formato)."""
+    digitos = "".join(c for c in telefono if c.isdigit())
+    sufijo  = digitos[-10:] if len(digitos) >= 10 else digitos
+    if not sufijo:
+        return None
+    rows = await _query(
+        "SELECT odoo_id, nombre, email FROM clientes_odoo WHERE telefono LIKE ?",
+        (f"%{sufijo}",),
+    )
+    return rows[0] if rows else None
