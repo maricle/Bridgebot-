@@ -11,6 +11,15 @@ log = logging.getLogger(__name__)
 USE_TURSO = bool(TURSO_URL and TURSO_TOKEN)
 
 _CREATE_TABLES = [
+    """CREATE TABLE IF NOT EXISTS archivos (
+        id          INTEGER PRIMARY KEY AUTOINCREMENT,
+        ig_user_id  TEXT NOT NULL,
+        canal       TEXT DEFAULT 'whatsapp',
+        tipo        TEXT NOT NULL,
+        media_id    TEXT DEFAULT '',
+        url         TEXT DEFAULT '',
+        creado_en   TEXT DEFAULT (datetime('now'))
+    )""",
     """CREATE TABLE IF NOT EXISTS usuarios (
         ig_user_id  TEXT PRIMARY KEY,
         saludado    INTEGER DEFAULT 0,
@@ -304,7 +313,23 @@ async def obtener_conversacion(user_id: str) -> list:
     )
 
 
+async def guardar_archivo(user_id: str, canal: str, tipo: str,
+                          media_id: str = "", url: str = ""):
+    await _run(
+        "INSERT INTO archivos (ig_user_id, canal, tipo, media_id, url) VALUES (?, ?, ?, ?, ?)",
+        (user_id, canal, tipo, media_id, url),
+    )
+
+
+async def obtener_archivos(user_id: str) -> list[dict]:
+    return await _query(
+        "SELECT tipo, media_id, url, creado_en FROM archivos WHERE ig_user_id = ? ORDER BY id ASC",
+        (user_id,),
+    )
+
+
 async def resetear_usuario(user_id: str):
     await _run("DELETE FROM usuarios WHERE ig_user_id = ?", (user_id,))
     await _run("DELETE FROM historial WHERE ig_user_id = ?", (user_id,))
-    await _run("DELETE FROM leads WHERE ig_user_id = ?", (user_id,))
+    await _run("DELETE FROM leads    WHERE ig_user_id = ?", (user_id,))
+    await _run("DELETE FROM archivos WHERE ig_user_id = ?", (user_id,))

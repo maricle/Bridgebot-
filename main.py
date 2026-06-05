@@ -14,9 +14,9 @@ from fastapi.responses import PlainTextResponse
 import instagram
 import whatsapp
 from config import AUTO_RESPUESTA, EXCLUIR_BOT, IG_ACCOUNT_ID, SALUDO, VERIFY_TOKEN
-from db import (conversacion_cerrada, es_usuario_nuevo, init_db, marcar_saludado,
-                obtener_conversacion, obtener_leads, obtener_usuarios, resetear_cerrada,
-                resetear_usuario, stats)
+from db import (conversacion_cerrada, es_usuario_nuevo, guardar_archivo,
+                init_db, marcar_saludado, obtener_canonical_id, obtener_conversacion,
+                obtener_leads, obtener_usuarios, resetear_cerrada, resetear_usuario, stats)
 from groq_ai import generar_respuesta
 
 logging.basicConfig(level=logging.INFO, format="%(levelname)s: %(message)s")
@@ -87,6 +87,17 @@ async def recibir_webhook(request: Request):
 
 async def procesar_instagram(data: dict):
     try:
+        # Archivos adjuntos
+        sender_arch, archivos = instagram.extraer_archivos(data)
+        if sender_arch and archivos:
+            canonical = await obtener_canonical_id(sender_arch)
+            for arch in archivos:
+                await guardar_archivo(canonical, "instagram", arch["tipo"], url=arch.get("url", ""))
+            log.info("IG: %s archivo(s) guardado(s) para %s", len(archivos), sender_arch)
+            async with httpx.AsyncClient() as client:
+                await instagram.enviar_mensaje(client, sender_arch, "¡Recibimos el archivo! Lo vamos a adjuntar al pedido.")
+            return
+
         sender_id, mensaje = instagram.extraer_mensaje(data)
         if not sender_id or not mensaje:
             log.info("IG: evento sin texto, ignorando.")
@@ -144,6 +155,17 @@ async def recibir_whatsapp(request: Request):
 
 async def procesar_whatsapp(data: dict):
     try:
+        # Archivos adjuntos
+        sender_arch, archivos = whatsapp.extraer_archivos(data)
+        if sender_arch and archivos:
+            canonical = await obtener_canonical_id(sender_arch)
+            for arch in archivos:
+                await guardar_archivo(canonical, "whatsapp", arch["tipo"], media_id=arch.get("media_id", ""))
+            log.info("WA: %s archivo(s) guardado(s) para %s", len(archivos), sender_arch)
+            async with httpx.AsyncClient() as client:
+                await whatsapp.enviar_mensaje(client, sender_arch, "¡Recibimos el archivo! Lo vamos a adjuntar al pedido.")
+            return
+
         sender_id, mensaje = whatsapp.extraer_mensaje(data)
         if not sender_id or not mensaje:
             log.info("WA: evento sin texto, ignorando.")

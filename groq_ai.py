@@ -21,8 +21,8 @@ def _pide_precio(mensaje: str) -> bool:
     return any(p in texto for p in _PALABRAS_PRECIO)
 from db import (buscar_usuario_por_telefono, cerrar_conversacion,
                 guardar_datos_cliente, guardar_lead, guardar_mensaje,
-                obtener_canonical_id, obtener_datos_cliente, obtener_historial,
-                tiene_lead_activo, vincular_usuario)
+                obtener_archivos, obtener_canonical_id, obtener_datos_cliente,
+                obtener_historial, tiene_lead_activo, vincular_usuario)
 
 log = logging.getLogger(__name__)
 
@@ -147,8 +147,12 @@ async def _intentar_crear_lead(user_id: str, canal: str, historial: list,
             canonical_id = wa_id
             log.info("IG user %s vinculado a WA user %s", user_id, wa_id)
 
+    archivos = await obtener_archivos(canonical_id)
     from odoo_crm import crear_lead
-    odoo_id = await crear_lead(nombre, telefono, descripcion, canal, user_id) or 0
+    odoo_id = await crear_lead(
+        nombre, telefono, descripcion, canal, user_id,
+        historial=historial, archivos=archivos,
+    ) or 0
     await guardar_lead(canonical_id, descripcion, canal, odoo_id)
     await guardar_datos_cliente(canonical_id, nombre=nombre, telefono=telefono)
     await cerrar_conversacion(canonical_id)
