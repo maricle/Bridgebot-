@@ -135,20 +135,30 @@ async def init_db():
             log.info("Turso DB lista: %s", TURSO_URL)
         except Exception as e:
             log.critical("ERROR conectando a Turso: %s — la app puede fallar", e)
-        try:
-            await _turso("ALTER TABLE usuarios ADD COLUMN cerrada INTEGER DEFAULT 0")
-        except Exception:
-            pass  # columna ya existe
+        for col_sql in [
+            "ALTER TABLE usuarios ADD COLUMN cerrada INTEGER DEFAULT 0",
+            "ALTER TABLE usuarios ADD COLUMN nombre  TEXT    DEFAULT ''",
+            "ALTER TABLE usuarios ADD COLUMN telefono TEXT   DEFAULT ''",
+        ]:
+            try:
+                await _turso(col_sql)
+            except Exception:
+                pass  # columna ya existe
     else:
         log.warning("TURSO_URL/TURSO_TOKEN no configuradas — usando SQLite local (los datos se pierden en cada redeploy)")
         _sqlite_init()
         log.info("SQLite lista (local): %s", DB_PATH)
-        try:
-            with sqlite3.connect(DB_PATH) as con:
-                con.execute("ALTER TABLE usuarios ADD COLUMN cerrada INTEGER DEFAULT 0")
-                con.commit()
-        except Exception:
-            pass  # columna ya existe
+        for col_sql in [
+            "ALTER TABLE usuarios ADD COLUMN cerrada  INTEGER DEFAULT 0",
+            "ALTER TABLE usuarios ADD COLUMN nombre   TEXT    DEFAULT ''",
+            "ALTER TABLE usuarios ADD COLUMN telefono TEXT    DEFAULT ''",
+        ]:
+            try:
+                with sqlite3.connect(DB_PATH) as con:
+                    con.execute(col_sql)
+                    con.commit()
+            except Exception:
+                pass  # columna ya existe
 
 
 # ─── FUNCIONES DE NEGOCIO ─────────────────────────────────────────────────────
@@ -209,6 +219,27 @@ async def cerrar_conversacion(user_id: str):
 
 async def resetear_cerrada(user_id: str):
     await _run("UPDATE usuarios SET cerrada = 0 WHERE ig_user_id = ?", (user_id,))
+
+
+async def guardar_datos_cliente(user_id: str, nombre: str = "", telefono: str = ""):
+    if nombre and telefono:
+        await _run(
+            "UPDATE usuarios SET nombre = ?, telefono = ? WHERE ig_user_id = ?",
+            (nombre, telefono, user_id),
+        )
+    elif nombre:
+        await _run("UPDATE usuarios SET nombre = ? WHERE ig_user_id = ?", (nombre, user_id))
+    elif telefono:
+        await _run("UPDATE usuarios SET telefono = ? WHERE ig_user_id = ?", (telefono, user_id))
+
+
+async def obtener_datos_cliente(user_id: str) -> dict:
+    rows = await _query(
+        "SELECT nombre, telefono FROM usuarios WHERE ig_user_id = ?", (user_id,)
+    )
+    if rows:
+        return {"nombre": rows[0].get("nombre") or "", "telefono": rows[0].get("telefono") or ""}
+    return {"nombre": "", "telefono": ""}
 
 
 async def conversacion_cerrada(user_id: str) -> bool:

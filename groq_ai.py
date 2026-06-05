@@ -15,8 +15,9 @@ _PALABRAS_PRECIO = {
 def _pide_precio(mensaje: str) -> bool:
     texto = mensaje.lower()
     return any(p in texto for p in _PALABRAS_PRECIO)
-from db import (cerrar_conversacion, guardar_lead, guardar_mensaje,
-                obtener_historial, tiene_lead_activo)
+from db import (cerrar_conversacion, guardar_datos_cliente, guardar_lead,
+                guardar_mensaje, obtener_datos_cliente, obtener_historial,
+                tiene_lead_activo)
 
 log = logging.getLogger(__name__)
 
@@ -31,9 +32,11 @@ Respondé SOLO con un JSON válido con este formato exacto (sin explicaciones):
 }
 
 "tiene_lead" debe ser true SOLO si se cumplen LAS TRES condiciones:
-1. El cliente proporcionó su nombre y apellido
-2. El cliente proporcionó su teléfono o WhatsApp
+1. Se conoce el nombre y apellido del cliente (puede venir de los datos conocidos al inicio)
+2. Se conoce el teléfono o WhatsApp del cliente (puede venir de los datos conocidos al inicio)
 3. El cliente tiene un pedido o consulta concreta (producto o proyecto definido)
+
+Si hay datos conocidos marcados con [Nombre conocido] o [Teléfono conocido], usarlos directamente sin requerir que el cliente los repita.
 """
 
 
@@ -75,7 +78,21 @@ async def _llamar_claude(messages: list, system: str = "", max_tokens: int = 400
 
 
 async def _intentar_crear_lead(user_id: str, canal: str, historial: list):
-    conversacion = "\n".join(
+    datos_cliente = await obtener_datos_cliente(user_id)
+
+    # Para WA el user_id ES el teléfono — guardarlo si aún no está
+    if canal == "whatsapp" and not datos_cliente.get("telefono"):
+        await guardar_datos_cliente(user_id, telefono=user_id)
+        datos_cliente["telefono"] = user_id
+
+    # Inyectar datos conocidos al inicio del contexto de extracción
+    prefijo = ""
+    if datos_cliente.get("nombre"):
+        prefijo += f"[Nombre conocido del cliente: {datos_cliente['nombre']}]\n"
+    if datos_cliente.get("telefono"):
+        prefijo += f"[Teléfono conocido del cliente: {datos_cliente['telefono']}]\n"
+
+    conversacion = prefijo + "\n".join(
         f"{'Cliente' if m['role'] == 'user' else 'Bot'}: {m['content']}"
         for m in historial[-10:]
     )
@@ -117,6 +134,7 @@ async def _intentar_crear_lead(user_id: str, canal: str, historial: list):
     from odoo_crm import crear_lead
     odoo_id = await crear_lead(nombre, telefono, descripcion, canal, user_id) or 0
     await guardar_lead(user_id, descripcion, canal, odoo_id)
+    await guardar_datos_cliente(user_id, nombre=nombre, telefono=telefono)
     await cerrar_conversacion(user_id)
     log.info("Lead creado y conversación cerrada — user=%s odoo_id=%s", user_id, odoo_id)
 
@@ -125,14 +143,22 @@ async def generar_respuesta(user_id: str, mensaje: str, canal: str = "instagram"
     if not ANTHROPIC_API_KEY:
         return "El servicio de IA no está configurado. Te contactamos a la brevedad."
 
-    historial = await obtener_historial(user_id)
-    messages  = historial + [{"role": "user", "content": mensaje}]
+    historial        = await obtener_historial(user_id)
+    datos_cliente    = await obtener_datos_cliente(user_id)
+    messages         = historial + [{"role": "user", "content": mensaje}]
 
     con_precios = _pide_precio(mensaje)
-    respuesta = await _llamar_claude(
-        messages=messages,
-        system=get_system_prompt(con_precios=con_precios, canal=canal),
-    )
+    system      = get_system_prompt(con_precios=con_precios, canal=canal)
+
+    if datos_cliente.get("nombre") or datos_cliente.get("telefono"):
+        system += "\n\n## Datos conocidos del cliente"
+        if datos_cliente.get("nombre"):
+            system += f"\nNombre: {datos_cliente['nombre']}"
+        if datos_cliente.get("telefono"):
+            system += f"\nTeléfono/WA: {datos_cliente['telefono']}"
+        system += "\nAntes de generar un nuevo pedido, corroborá estos datos con el cliente."
+
+    respuesta = await _llamar_claude(messages=messages, system=system)
     if con_precios:
         log.info("Contexto de precios incluido para user=%s", user_id)
 
