@@ -39,8 +39,23 @@ def _leer_archivo(nombre: str) -> str:
     except FileNotFoundError:
         return ""
 
+
+def _leer_conocimiento_completo() -> str:
+    """Carga conocimiento.txt + cualquier archivo numerado (01_*, 02_*, etc.)."""
+    import glob
+    base_dir = os.path.dirname(os.path.abspath(__file__))
+    knowledge_dir = os.path.join(base_dir, "knowledge")
+    partes = [_leer_archivo("conocimiento.txt")]
+    for filepath in sorted(glob.glob(os.path.join(knowledge_dir, "[0-9]*.txt"))):
+        nombre = os.path.basename(filepath)
+        contenido = _leer_archivo(nombre)
+        if contenido:
+            partes.append(contenido)
+    return "\n\n---\n\n".join(p for p in partes if p)
+
+
 _agente       = _leer_archivo("agente.txt")
-_conocimiento = _leer_archivo("conocimiento.txt")
+_conocimiento = _leer_conocimiento_completo()
 
 # Los precios se cargan dinámicamente desde precios.py (Google Doc o archivo local)
 # SYSTEM_PROMPT se construye en runtime via get_system_prompt()
@@ -63,7 +78,12 @@ def get_system_prompt(con_precios: bool = False, canal: str = "instagram") -> st
 ODOO_URL     = os.environ.get("ODOO_URL", "").rstrip("/")
 ODOO_API_KEY = os.environ.get("ODOO_API_KEY", "")
 ODOO_DB      = os.environ.get("ODOO_DB", "")
-ODOO_LOGIN    = os.environ.get("ODOO_LOGIN", "")
+ODOO_LOGIN   = os.environ.get("ODOO_LOGIN", "")
+
+# Routing multi-company (Grupo Ideas)
+# Formato: "company_id:user_id" — ej. "3:5" → company_id=3, user_id=5
+ODOO_DESTINO_CARTELERIA = os.environ.get("ODOO_DESTINO_CARTELERIA", "")
+ODOO_DESTINO_OFICINA    = os.environ.get("ODOO_DESTINO_OFICINA", "")
 
 # ─── BASE DE DATOS ────────────────────────────────────────────────────────────
 TURSO_URL   = os.environ.get("TURSO_URL", "").replace("libsql://", "https://")

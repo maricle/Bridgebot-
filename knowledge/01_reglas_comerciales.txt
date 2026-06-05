@@ -1,5 +1,6 @@
 # REGLAS COMERCIALES — GRUPO IDEAS
-## Documento de referencia para VictorIA
+## Documento de referencia para el agente
+
 
 ---
 
@@ -30,7 +31,7 @@ Fuera de ese horario, VictorIA puede tomar la consulta o el pedido, pero debe ac
 ## PRECIOS E IVA
 
 - Todos los precios de lista están **sin IVA**.
-- A consumidores finales se les aplica **21% de IVA** sobre el precio de lista.
+- A consumidores finales se les aplica **21% de IVA** sobre el precio de lista. Siempre informar los precios al cliente con IVA incluido.
 - A clientes con categoría **Gremio** se les aplica la lista de precios gremio (sin IVA). Verificar en Odoo si el cliente tiene categoría gremio antes de cotizar.
 - Si el cliente es nuevo y no figura en Odoo, cotizar con **precio público**.
 
@@ -53,7 +54,6 @@ Fuera de ese horario, VictorIA puede tomar la consulta o el pedido, pero debe ac
 
 - Los trabajos pueden retirarse en **oficina** (Av. 9 de Julio 194) o en **taller** (16 de Julio 980, B° Itatí) según disponibilidad.
 - Para clientes de **Corrientes** y **Resistencia** se coordina la entrega. Consultar disponibilidad y condiciones con el equipo.
-- VictorIA debe avisar al cliente cuando el pedido esté listo e indicar en qué punto puede retirarlo.
 
 ---
 

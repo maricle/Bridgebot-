@@ -1,5 +1,0 @@
-# ─── LISTA DE PRECIOS GRUPO IDEAS ────────────────────────────────────────────
-# Completar con los precios del cliente
-# O configurar PRECIOS_DOC_URL en Railway para cargar desde Google Doc
-
-[Completar]

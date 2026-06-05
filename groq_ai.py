@@ -11,9 +11,15 @@ _PALABRAS_PRECIO = {
     "precio", "precios", "presupuesto", "costo", "costos",
     "cuanto", "cuánto", "vale", "sale", "tarifa", "valor",
     "cotizacion", "cotización", "plata", "pesos", "cobran", "cobras",
-    # Productos con precio conocido — cargar lista proactivamente
+    # Clever CNC
     "placa", "ranurada", "laqueado", "laqueo", "lacar", "barniz",
     "corte cnc", "mecanizado", "ranurado",
+    # Grupo Ideas
+    "lona", "vinilo", "banner", "cartel", "carteleria", "cartelería",
+    "impresion", "impresión", "copia", "copias", "folleto",
+    "tarjeta", "talonario", "recetario", "dtf", "adhesivo", "sello",
+    "afiche", "poster", "póster", "roll up", "portabanner",
+    "a4", "a3", "plastificado", "laminado",
 }
 
 def _pide_precio(mensaje: str) -> bool:
@@ -33,7 +39,8 @@ Respondé SOLO con un JSON válido con este formato exacto (sin explicaciones):
   "tiene_lead": true/false,
   "nombre": "nombre y apellido completo del cliente o null",
   "telefono": "teléfono o WhatsApp del cliente o null",
-  "descripcion": "resumen breve del pedido en 1-2 oraciones o null"
+  "descripcion": "resumen breve del pedido en 1-2 oraciones o null",
+  "destino": "carteleria" o "oficina"
 }
 
 "tiene_lead" debe ser true SOLO si se cumplen LAS TRES condiciones:
@@ -42,6 +49,10 @@ Respondé SOLO con un JSON válido con este formato exacto (sin explicaciones):
 3. El cliente tiene un pedido o consulta concreta (producto o proyecto definido)
 
 Si hay datos conocidos marcados con [Nombre conocido] o [Teléfono conocido], usarlos directamente sin requerir que el cliente los repita.
+
+"destino" debe ser:
+- "carteleria" si el pedido involucra letras corpóreas, señalética corpórea, acrílico con iluminación LED, estructuras o carteles de fachada tridimensionales
+- "oficina" en todos los demás casos: impresiones, lonas, vinilos, gran formato, DTF, copias, talonarios, tarjetas, sellos, adhesivos, banners, PVC, polifan
 """
 
 
@@ -147,11 +158,12 @@ async def _intentar_crear_lead(user_id: str, canal: str, historial: list,
             canonical_id = wa_id
             log.info("IG user %s vinculado a WA user %s", user_id, wa_id)
 
+    destino  = datos.get("destino") or "oficina"
     archivos = await obtener_archivos(canonical_id)
     from odoo_crm import crear_lead
     odoo_id = await crear_lead(
         nombre, telefono, descripcion, canal, user_id,
-        historial=historial, archivos=archivos,
+        historial=historial, archivos=archivos, destino=destino,
     ) or 0
     await guardar_lead(canonical_id, descripcion, canal, odoo_id)
     await guardar_datos_cliente(canonical_id, nombre=nombre, telefono=telefono)
