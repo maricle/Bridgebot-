@@ -7,9 +7,13 @@ import httpx
 from config import ANTHROPIC_API_KEY, get_system_prompt
 
 _PALABRAS_PRECIO = {
+    # Consultas de precio explícitas
     "precio", "precios", "presupuesto", "costo", "costos",
     "cuanto", "cuánto", "vale", "sale", "tarifa", "valor",
     "cotizacion", "cotización", "plata", "pesos", "cobran", "cobras",
+    # Productos con precio conocido — cargar lista proactivamente
+    "placa", "ranurada", "laqueado", "laqueo", "lacar", "barniz",
+    "corte cnc", "mecanizado", "ranurado",
 }
 
 def _pide_precio(mensaje: str) -> bool:
