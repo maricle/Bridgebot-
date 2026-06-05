@@ -5,6 +5,16 @@ import logging
 import httpx
 
 from config import ANTHROPIC_API_KEY, get_system_prompt
+
+_PALABRAS_PRECIO = {
+    "precio", "precios", "presupuesto", "costo", "costos",
+    "cuanto", "cuánto", "vale", "sale", "tarifa", "valor",
+    "cotizacion", "cotización", "plata", "pesos", "cobran", "cobras",
+}
+
+def _pide_precio(mensaje: str) -> bool:
+    texto = mensaje.lower()
+    return any(p in texto for p in _PALABRAS_PRECIO)
 from db import guardar_lead, guardar_mensaje, obtener_historial, tiene_lead_activo
 
 log = logging.getLogger(__name__)
@@ -107,10 +117,13 @@ async def generar_respuesta(user_id: str, mensaje: str, canal: str = "instagram"
     historial = await obtener_historial(user_id)
     messages  = historial + [{"role": "user", "content": mensaje}]
 
+    con_precios = _pide_precio(mensaje)
     respuesta = await _llamar_claude(
         messages=messages,
-        system=get_system_prompt(),
+        system=get_system_prompt(con_precios=con_precios),
     )
+    if con_precios:
+        log.info("Contexto de precios incluido para user=%s", user_id)
 
     if not respuesta:
         return "Tardamos un poco más de lo normal. ¿Podés repetir tu consulta?"

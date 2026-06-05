@@ -47,14 +47,15 @@ _conocimiento = _leer_archivo("conocimiento.txt")
 _PROMPT_BASE = os.environ.get("BOT_SYSTEM_PROMPT", "")
 
 
-def get_system_prompt() -> str:
+def get_system_prompt(con_precios: bool = False) -> str:
     from precios import obtener as obtener_precios
     base = _PROMPT_BASE or _agente
     if _conocimiento:
         base += f"\n\n## Información de la empresa:\n{_conocimiento}"
-    precios = obtener_precios()
-    if precios:
-        base += f"\n\n## Lista de precios:\n{precios}"
+    if con_precios:
+        precios = obtener_precios()
+        if precios:
+            base += f"\n\n## Lista de precios:\n{precios}"
     return base
 
 # ─── ODOO CRM ─────────────────────────────────────────────────────────────────
