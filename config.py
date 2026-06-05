@@ -47,9 +47,10 @@ _conocimiento = _leer_archivo("conocimiento.txt")
 _PROMPT_BASE = os.environ.get("BOT_SYSTEM_PROMPT", "")
 
 
-def get_system_prompt(con_precios: bool = False) -> str:
+def get_system_prompt(con_precios: bool = False, canal: str = "instagram") -> str:
     from precios import obtener as obtener_precios
     base = _PROMPT_BASE or _agente
+    base += f"\n\n## Canal actual: {canal.upper()}"
     if _conocimiento:
         base += f"\n\n## Información de la empresa:\n{_conocimiento}"
     if con_precios:

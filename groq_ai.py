@@ -120,7 +120,7 @@ async def generar_respuesta(user_id: str, mensaje: str, canal: str = "instagram"
     con_precios = _pide_precio(mensaje)
     respuesta = await _llamar_claude(
         messages=messages,
-        system=get_system_prompt(con_precios=con_precios),
+        system=get_system_prompt(con_precios=con_precios, canal=canal),
     )
     if con_precios:
         log.info("Contexto de precios incluido para user=%s", user_id)
