@@ -15,7 +15,8 @@ _PALABRAS_PRECIO = {
 def _pide_precio(mensaje: str) -> bool:
     texto = mensaje.lower()
     return any(p in texto for p in _PALABRAS_PRECIO)
-from db import guardar_lead, guardar_mensaje, obtener_historial, tiene_lead_activo
+from db import (cerrar_conversacion, guardar_lead, guardar_mensaje,
+                obtener_historial, tiene_lead_activo)
 
 log = logging.getLogger(__name__)
 
@@ -23,16 +24,21 @@ EXTRACCION_PROMPT = """
 Analizá esta conversación y extraé los datos del cliente.
 Respondé SOLO con un JSON válido con este formato exacto (sin explicaciones):
 {
-  "tiene_lead": true/false,
+  "tiene_pedido": true/false,
+  "tiene_contacto": true/false,
   "nombre": "nombre y apellido completo del cliente o null",
   "telefono": "teléfono o WhatsApp del cliente o null",
   "descripcion": "resumen breve del pedido en 1-2 oraciones o null"
 }
 
-"tiene_lead" debe ser true SOLO si se cumplen LAS TRES condiciones:
-1. El cliente proporcionó su nombre y apellido
-2. El cliente proporcionó su teléfono o WhatsApp
-3. El cliente expresó un pedido o consulta concreta
+"tiene_pedido" = true cuando el cliente definió claramente qué quiere:
+- Producto de catálogo: confirmó qué producto específico quiere (ej: placa ranurada, mueble)
+- Proyecto personalizado: indicó tipo de trabajo + material + características/medidas
+(NO se requiere nombre ni teléfono)
+
+"tiene_contacto" = true SOLO cuando el cliente dio AMBOS:
+1. Nombre y apellido completo
+2. Teléfono o WhatsApp
 """
 
 
@@ -74,9 +80,6 @@ async def _llamar_claude(messages: list, system: str = "", max_tokens: int = 400
 
 
 async def _intentar_crear_lead(user_id: str, canal: str, historial: list):
-    if await tiene_lead_activo(user_id):
-        return
-
     conversacion = "\n".join(
         f"{'Cliente' if m['role'] == 'user' else 'Bot'}: {m['content']}"
         for m in historial[-10:]
@@ -97,17 +100,21 @@ async def _intentar_crear_lead(user_id: str, canal: str, historial: list):
         log.warning("Claude no devolvió JSON válido para extracción: %s", resultado[:100])
         return
 
-    if not datos.get("tiene_lead"):
-        return
-
     nombre      = datos.get("nombre") or ""
     telefono    = datos.get("telefono") or ""
     descripcion = datos.get("descripcion") or ""
 
-    from odoo_crm import crear_lead
-    odoo_id = await crear_lead(nombre, telefono, descripcion, canal, user_id) or 0
-    await guardar_lead(user_id, descripcion, canal, odoo_id)
-    log.info("Lead procesado — user=%s odoo_id=%s", user_id, odoo_id)
+    # Fase 1: crear lead en Odoo cuando el pedido está definido
+    if datos.get("tiene_pedido") and not await tiene_lead_activo(user_id):
+        from odoo_crm import crear_lead
+        odoo_id = await crear_lead(nombre, telefono, descripcion, canal, user_id) or 0
+        await guardar_lead(user_id, descripcion, canal, odoo_id)
+        log.info("Lead creado — user=%s odoo_id=%s nombre=%s", user_id, odoo_id, nombre or "sin nombre")
+
+    # Fase 2: cerrar conversación cuando tiene nombre + teléfono
+    if datos.get("tiene_contacto"):
+        await cerrar_conversacion(user_id)
+        log.info("Conversación cerrada — user=%s", user_id)
 
 
 async def generar_respuesta(user_id: str, mensaje: str, canal: str = "instagram") -> str:
@@ -131,9 +138,7 @@ async def generar_respuesta(user_id: str, mensaje: str, canal: str = "instagram"
     await guardar_mensaje(user_id, "user", mensaje)
     await guardar_mensaje(user_id, "assistant", respuesta)
 
-    turnos_cliente = sum(1 for m in messages if m["role"] == "user")
-    if turnos_cliente >= 3 and turnos_cliente % 3 == 0:
-        asyncio.create_task(_intentar_crear_lead(user_id, canal, messages))
+    asyncio.create_task(_intentar_crear_lead(user_id, canal, messages))
 
     log.info("Claude [%s] user=%s: %s...", canal, user_id, respuesta[:80])
     return respuesta

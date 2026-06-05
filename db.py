@@ -135,10 +135,20 @@ async def init_db():
             log.info("Turso DB lista: %s", TURSO_URL)
         except Exception as e:
             log.critical("ERROR conectando a Turso: %s — la app puede fallar", e)
+        try:
+            await _turso("ALTER TABLE usuarios ADD COLUMN cerrada INTEGER DEFAULT 0")
+        except Exception:
+            pass  # columna ya existe
     else:
         log.warning("TURSO_URL/TURSO_TOKEN no configuradas — usando SQLite local (los datos se pierden en cada redeploy)")
         _sqlite_init()
         log.info("SQLite lista (local): %s", DB_PATH)
+        try:
+            with sqlite3.connect(DB_PATH) as con:
+                con.execute("ALTER TABLE usuarios ADD COLUMN cerrada INTEGER DEFAULT 0")
+                con.commit()
+        except Exception:
+            pass  # columna ya existe
 
 
 # ─── FUNCIONES DE NEGOCIO ─────────────────────────────────────────────────────
@@ -190,8 +200,16 @@ async def tiene_lead_activo(user_id: str) -> bool:
     return bool(rows)
 
 
+async def cerrar_conversacion(user_id: str):
+    await _run(
+        "UPDATE usuarios SET cerrada = 1 WHERE ig_user_id = ?", (user_id,)
+    )
+
+
 async def conversacion_cerrada(user_id: str) -> bool:
-    rows = await _query("SELECT id FROM leads WHERE ig_user_id = ?", (user_id,))
+    rows = await _query(
+        "SELECT cerrada FROM usuarios WHERE ig_user_id = ? AND cerrada = 1", (user_id,)
+    )
     return bool(rows)
 
 
