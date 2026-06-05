@@ -156,7 +156,7 @@ async def generar_respuesta(user_id: str, mensaje: str, canal: str = "instagram"
             system += f"\nNombre: {datos_cliente['nombre']}"
         if datos_cliente.get("telefono"):
             system += f"\nTeléfono/WA: {datos_cliente['telefono']}"
-        system += "\nAntes de generar un nuevo pedido, corroborá estos datos con el cliente."
+        system += "\nAntes de generar un nuevo pedido, confirmá con el cliente usando exactamente este formato: \"Voy a generar el pedido a nombre de [nombre], ¿uso el mismo número de teléfono?\" Esperá confirmación antes de cerrar."
 
     respuesta = await _llamar_claude(messages=messages, system=system)
     if con_precios:
