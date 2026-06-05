@@ -114,6 +114,38 @@ async def _adjuntar_archivo(client: httpx.AsyncClient, uid: int, lead_id: int,
         log.error("Error adjuntando archivo al lead %s: %s", lead_id, e)
 
 
+async def sincronizar_clientes() -> list[dict]:
+    """Trae todos los res.partner con teléfono de Odoo para sync nocturno."""
+    if not ODOO_URL or not ODOO_API_KEY or not ODOO_LOGIN:
+        return []
+    try:
+        async with httpx.AsyncClient() as client:
+            uid = await _autenticar(client)
+            if not uid:
+                return []
+            partners = await _execute_kw(
+                client, uid, "res.partner", "search_read",
+                [[["phone", "!=", False]]],
+                {"fields": ["id", "name", "phone", "mobile", "email"], "limit": 5000},
+            )
+        clientes = []
+        for p in partners:
+            tel = p.get("phone") or p.get("mobile") or ""
+            digitos = "".join(c for c in tel if c.isdigit())
+            if len(digitos) >= 7:
+                clientes.append({
+                    "odoo_id":  p["id"],
+                    "nombre":   p.get("name") or "",
+                    "telefono": digitos,
+                    "email":    p.get("email") or "",
+                })
+        log.info("Odoo sync: %d partners con teléfono", len(clientes))
+        return clientes
+    except Exception as e:
+        log.error("Error sincronizando clientes de Odoo: %s", e)
+        return []
+
+
 def _resolver_destino(destino: str) -> tuple[int | None, int | None]:
     """Retorna (company_id, responsable_id) según el destino configurado."""
     raw = ODOO_DESTINO_CARTELERIA if destino == "carteleria" else ODOO_DESTINO_OFICINA

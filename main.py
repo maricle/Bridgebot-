@@ -31,12 +31,14 @@ async def lifespan(app: FastAPI):
     from precios import cargar as cargar_precios
     await init_db()
     await cargar_precios()
-    task = asyncio.create_task(_refresh_precios_loop())
+    t1 = asyncio.create_task(_refresh_precios_loop())
+    t2 = asyncio.create_task(_sync_clientes_loop())
     modo = "AUTO_RESPUESTA" if AUTO_RESPUESTA else "CLAUDE"
     log.info("BridgeBot v5 iniciado — modo: %s", modo)
     log.info("Claude configurado: %s", "SI" if ANTHROPIC_API_KEY else "NO")
     yield
-    task.cancel()
+    t1.cancel()
+    t2.cancel()
 
 
 async def _refresh_precios_loop():
@@ -45,6 +47,17 @@ async def _refresh_precios_loop():
         await asyncio.sleep(86400)
         await cargar_precios()
         log.info("Precios actualizados automáticamente")
+
+
+async def _sync_clientes_loop():
+    from odoo_crm import sincronizar_clientes
+    from db import upsert_clientes_odoo
+    await asyncio.sleep(60)  # esperar que la app arranque
+    while True:
+        clientes = await sincronizar_clientes()
+        if clientes:
+            await upsert_clientes_odoo(clientes)
+        await asyncio.sleep(86400)  # repetir cada 24h
 
 
 app = FastAPI(title="BridgeBot", version="5.0.0", lifespan=lifespan)
