@@ -24,21 +24,16 @@ EXTRACCION_PROMPT = """
 Analizá esta conversación y extraé los datos del cliente.
 Respondé SOLO con un JSON válido con este formato exacto (sin explicaciones):
 {
-  "tiene_pedido": true/false,
-  "tiene_contacto": true/false,
+  "tiene_lead": true/false,
   "nombre": "nombre y apellido completo del cliente o null",
   "telefono": "teléfono o WhatsApp del cliente o null",
   "descripcion": "resumen breve del pedido en 1-2 oraciones o null"
 }
 
-"tiene_pedido" = true cuando el cliente definió claramente qué quiere:
-- Producto de catálogo: confirmó qué producto específico quiere (ej: placa ranurada, mueble)
-- Proyecto personalizado: indicó tipo de trabajo + material + características/medidas
-(NO se requiere nombre ni teléfono)
-
-"tiene_contacto" = true SOLO cuando el cliente dio AMBOS:
-1. Nombre y apellido completo
-2. Teléfono o WhatsApp
+"tiene_lead" debe ser true SOLO si se cumplen LAS TRES condiciones:
+1. El cliente proporcionó su nombre y apellido
+2. El cliente proporcionó su teléfono o WhatsApp
+3. El cliente tiene un pedido o consulta concreta (producto o proyecto definido)
 """
 
 
@@ -100,21 +95,21 @@ async def _intentar_crear_lead(user_id: str, canal: str, historial: list):
         log.warning("Claude no devolvió JSON válido para extracción: %s", resultado[:100])
         return
 
+    if not datos.get("tiene_lead"):
+        return
+
+    if await tiene_lead_activo(user_id):
+        return
+
     nombre      = datos.get("nombre") or ""
     telefono    = datos.get("telefono") or ""
     descripcion = datos.get("descripcion") or ""
 
-    # Fase 1: crear lead en Odoo cuando el pedido está definido
-    if datos.get("tiene_pedido") and not await tiene_lead_activo(user_id):
-        from odoo_crm import crear_lead
-        odoo_id = await crear_lead(nombre, telefono, descripcion, canal, user_id) or 0
-        await guardar_lead(user_id, descripcion, canal, odoo_id)
-        log.info("Lead creado — user=%s odoo_id=%s nombre=%s", user_id, odoo_id, nombre or "sin nombre")
-
-    # Fase 2: cerrar conversación cuando tiene nombre + teléfono
-    if datos.get("tiene_contacto"):
-        await cerrar_conversacion(user_id)
-        log.info("Conversación cerrada — user=%s", user_id)
+    from odoo_crm import crear_lead
+    odoo_id = await crear_lead(nombre, telefono, descripcion, canal, user_id) or 0
+    await guardar_lead(user_id, descripcion, canal, odoo_id)
+    await cerrar_conversacion(user_id)
+    log.info("Lead creado y conversación cerrada — user=%s odoo_id=%s", user_id, odoo_id)
 
 
 async def generar_respuesta(user_id: str, mensaje: str, canal: str = "instagram") -> str:
