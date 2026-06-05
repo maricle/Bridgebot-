@@ -83,14 +83,19 @@ async def _intentar_crear_lead(user_id: str, canal: str, historial: list):
     resultado = await _llamar_claude(
         messages=[{"role": "user", "content": conversacion}],
         system=EXTRACCION_PROMPT,
-        max_tokens=200,
+        max_tokens=350,
     )
 
     if not resultado:
         return
 
     try:
-        datos = json.loads(resultado)
+        # Claude a veces envuelve el JSON en ```json ... ```
+        limpio = resultado.strip()
+        if limpio.startswith("```"):
+            limpio = limpio.split("\n", 1)[-1]
+            limpio = limpio.rsplit("```", 1)[0]
+        datos = json.loads(limpio.strip())
     except json.JSONDecodeError:
         log.warning("Claude no devolvió JSON válido para extracción: %s", resultado[:100])
         return
@@ -104,6 +109,10 @@ async def _intentar_crear_lead(user_id: str, canal: str, historial: list):
     nombre      = datos.get("nombre") or ""
     telefono    = datos.get("telefono") or ""
     descripcion = datos.get("descripcion") or ""
+
+    # En WhatsApp el user_id ES el número de teléfono
+    if canal == "whatsapp" and not telefono:
+        telefono = user_id
 
     from odoo_crm import crear_lead
     odoo_id = await crear_lead(nombre, telefono, descripcion, canal, user_id) or 0
