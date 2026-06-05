@@ -84,6 +84,7 @@ async def crear_lead(nombre_cliente: str, telefono: str, descripcion: str,
                 "partner_name": nombre_cliente or "Sin nombre",
                 "phone": telefono or "",
                 "description": cuerpo,
+                "user_id": 1,
             }])
 
             log.info("Lead creado en Odoo CRM: id=%s canal=%s", lead_id, canal)
