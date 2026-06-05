@@ -5,18 +5,26 @@ from dotenv import load_dotenv
 load_dotenv()
 
 # ─── META / INSTAGRAM ────────────────────────────────────────────────────────
-VERIFY_TOKEN    = os.environ["META_VERIFY_TOKEN"]
-APP_SECRET      = os.environ["META_APP_SECRET"]
-IG_ACCESS_TOKEN = os.environ["IG_ACCESS_TOKEN"]
+def _require(key: str) -> str:
+    val = os.environ.get(key, "")
+    if not val:
+        import logging
+        logging.getLogger(__name__).critical("Variable de entorno requerida no configurada: %s", key)
+    return val
+
+VERIFY_TOKEN    = _require("META_VERIFY_TOKEN")
+APP_SECRET      = _require("META_APP_SECRET")
+IG_ACCESS_TOKEN = _require("IG_ACCESS_TOKEN")
 IG_ACCOUNT_ID   = os.environ.get("IG_ACCOUNT_ID", "17841456843060136")
 
 # ─── WHATSAPP ─────────────────────────────────────────────────────────────────
 WA_ACCESS_TOKEN  = os.environ.get("WA_ACCESS_TOKEN", "")
 WA_PHONE_ID      = os.environ.get("WA_PHONE_ID", "")
 
-# ─── GROQ AI ──────────────────────────────────────────────────────────────────
-GROQ_API_KEY   = os.environ.get("GROQ_API_KEY", "")
+# ─── ANTHROPIC / CLAUDE ───────────────────────────────────────────────────────
+ANTHROPIC_API_KEY = os.environ.get("ANTHROPIC_API_KEY", "")
 AUTO_RESPUESTA = os.environ.get("AUTO_RESPUESTA", "false").lower() == "true"
+EXCLUIR_BOT    = {u.strip() for u in os.environ.get("EXCLUIR_BOT", "").split(",") if u.strip()}
 
 SALUDO = os.environ.get(
     "SALUDO_BIENVENIDA",
@@ -39,14 +47,16 @@ _conocimiento = _leer_archivo("conocimiento.txt")
 _PROMPT_BASE = os.environ.get("BOT_SYSTEM_PROMPT", "")
 
 
-def get_system_prompt() -> str:
+def get_system_prompt(con_precios: bool = False, canal: str = "instagram") -> str:
     from precios import obtener as obtener_precios
     base = _PROMPT_BASE or _agente
+    base += f"\n\n## Canal actual: {canal.upper()}"
     if _conocimiento:
         base += f"\n\n## Información de la empresa:\n{_conocimiento}"
-    precios = obtener_precios()
-    if precios:
-        base += f"\n\n## Lista de precios:\n{precios}"
+    if con_precios:
+        precios = obtener_precios()
+        if precios:
+            base += f"\n\n## Lista de precios:\n{precios}"
     return base
 
 # ─── ODOO CRM ─────────────────────────────────────────────────────────────────
@@ -56,6 +66,6 @@ ODOO_DB      = os.environ.get("ODOO_DB", "")
 ODOO_LOGIN    = os.environ.get("ODOO_LOGIN", "")
 
 # ─── BASE DE DATOS ────────────────────────────────────────────────────────────
-TURSO_URL   = os.environ.get("TURSO_URL", "")
+TURSO_URL   = os.environ.get("TURSO_URL", "").replace("libsql://", "https://")
 TURSO_TOKEN = os.environ.get("TURSO_TOKEN", "")
 DB_PATH     = os.environ.get("DB_PATH", "/app/bridgebot.db")

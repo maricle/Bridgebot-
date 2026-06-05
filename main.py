@@ -1,10 +1,11 @@
 """
-BridgeBot — Instagram + WhatsApp → Groq AI Agent
+BridgeBot — Instagram + WhatsApp → Claude AI Agent
 Kleba Dev — 2026
 """
 
 import asyncio
 import logging
+from contextlib import asynccontextmanager
 
 import httpx
 from fastapi import FastAPI, HTTPException, Request, Response
@@ -12,9 +13,10 @@ from fastapi.responses import PlainTextResponse
 
 import instagram
 import whatsapp
-from config import AUTO_RESPUESTA, IG_ACCOUNT_ID, SALUDO, VERIFY_TOKEN
-from db import (es_usuario_nuevo, init_db, marcar_saludado, obtener_conversacion,
-                obtener_leads, obtener_usuarios, resetear_usuario, stats)
+from config import AUTO_RESPUESTA, EXCLUIR_BOT, IG_ACCOUNT_ID, SALUDO, VERIFY_TOKEN
+from db import (conversacion_cerrada, es_usuario_nuevo, guardar_archivo,
+                init_db, marcar_saludado, obtener_canonical_id, obtener_conversacion,
+                obtener_leads, obtener_usuarios, resetear_cerrada, resetear_usuario, stats)
 from groq_ai import generar_respuesta
 
 logging.basicConfig(level=logging.INFO, format="%(levelname)s: %(message)s")
@@ -22,28 +24,29 @@ log = logging.getLogger(__name__)
 logging.getLogger("httpx").setLevel(logging.WARNING)
 logging.getLogger("httpcore").setLevel(logging.WARNING)
 
-app = FastAPI(title="BridgeBot", version="5.0.0")
-
-
-# ─── STARTUP ──────────────────────────────────────────────────────────────────
-
-@app.on_event("startup")
-async def startup():
-    await init_db()
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    from config import ANTHROPIC_API_KEY
     from precios import cargar as cargar_precios
+    await init_db()
     await cargar_precios()
-    asyncio.create_task(_refresh_precios_loop())
-    modo = "AUTO_RESPUESTA" if AUTO_RESPUESTA else "GROQ_AI"
+    task = asyncio.create_task(_refresh_precios_loop())
+    modo = "AUTO_RESPUESTA" if AUTO_RESPUESTA else "CLAUDE"
     log.info("BridgeBot v5 iniciado — modo: %s", modo)
-    log.info("GROQ configurado: %s", "SI" if __import__("config").GROQ_API_KEY else "NO")
+    log.info("Claude configurado: %s", "SI" if ANTHROPIC_API_KEY else "NO")
+    yield
+    task.cancel()
 
 
 async def _refresh_precios_loop():
+    from precios import cargar as cargar_precios
     while True:
-        await asyncio.sleep(86400)  # 24 horas
-        from precios import cargar as cargar_precios
+        await asyncio.sleep(86400)
         await cargar_precios()
         log.info("Precios actualizados automáticamente")
+
+
+app = FastAPI(title="BridgeBot", version="5.0.0", lifespan=lifespan)
 
 
 # ─── INSTAGRAM ────────────────────────────────────────────────────────────────
@@ -84,6 +87,17 @@ async def recibir_webhook(request: Request):
 
 async def procesar_instagram(data: dict):
     try:
+        # Archivos adjuntos
+        sender_arch, archivos = instagram.extraer_archivos(data)
+        if sender_arch and archivos:
+            canonical = await obtener_canonical_id(sender_arch)
+            for arch in archivos:
+                await guardar_archivo(canonical, "instagram", arch["tipo"], url=arch.get("url", ""))
+            log.info("IG: %s archivo(s) guardado(s) para %s", len(archivos), sender_arch)
+            async with httpx.AsyncClient() as client:
+                await instagram.enviar_mensaje(client, sender_arch, "¡Recibimos el archivo! Lo vamos a adjuntar al pedido.")
+            return
+
         sender_id, mensaje = instagram.extraer_mensaje(data)
         if not sender_id or not mensaje:
             log.info("IG: evento sin texto, ignorando.")
@@ -91,6 +105,12 @@ async def procesar_instagram(data: dict):
         if sender_id == IG_ACCOUNT_ID:
             log.info("IG: mensaje propio, ignorando.")
             return
+        if sender_id in EXCLUIR_BOT:
+            log.info("IG: atendido por humano %s, ignorando.", sender_id)
+            return
+        if await conversacion_cerrada(sender_id):
+            await resetear_cerrada(sender_id)
+            log.info("IG: nueva sesión para %s — lead anterior registrado.", sender_id)
 
         log.info("IG user=%s: %s", sender_id, mensaje[:100])
         async with httpx.AsyncClient() as client:
@@ -127,10 +147,6 @@ async def verificar_webhook_wa(request: Request):
 
 @app.post("/webhook/whatsapp")
 async def recibir_whatsapp(request: Request):
-    payload = await request.body()
-    firma   = request.headers.get("X-Hub-Signature-256", "")
-    if firma and not instagram.verificar_firma(payload, firma):
-        log.warning("WA firma inválida, ignorando verificación en modo debug")
     data = await request.json()
     log.info("WA webhook recibido: %s", str(data)[:200])
     asyncio.create_task(procesar_whatsapp(data))
@@ -139,10 +155,27 @@ async def recibir_whatsapp(request: Request):
 
 async def procesar_whatsapp(data: dict):
     try:
+        # Archivos adjuntos
+        sender_arch, archivos = whatsapp.extraer_archivos(data)
+        if sender_arch and archivos:
+            canonical = await obtener_canonical_id(sender_arch)
+            for arch in archivos:
+                await guardar_archivo(canonical, "whatsapp", arch["tipo"], media_id=arch.get("media_id", ""))
+            log.info("WA: %s archivo(s) guardado(s) para %s", len(archivos), sender_arch)
+            async with httpx.AsyncClient() as client:
+                await whatsapp.enviar_mensaje(client, sender_arch, "¡Recibimos el archivo! Lo vamos a adjuntar al pedido.")
+            return
+
         sender_id, mensaje = whatsapp.extraer_mensaje(data)
         if not sender_id or not mensaje:
             log.info("WA: evento sin texto, ignorando.")
             return
+        if sender_id in EXCLUIR_BOT:
+            log.info("WA: atendido por humano %s, ignorando.", sender_id)
+            return
+        if await conversacion_cerrada(sender_id):
+            await resetear_cerrada(sender_id)
+            log.info("WA: nueva sesión para %s — lead anterior registrado.", sender_id)
 
         log.info("WA user=%s: %s", sender_id, mensaje[:100])
         async with httpx.AsyncClient() as client:
@@ -158,6 +191,21 @@ async def procesar_whatsapp(data: dict):
 
 
 # ─── UTILS ────────────────────────────────────────────────────────────────────
+
+@app.get("/test-claude")
+async def test_claude():
+    from config import ANTHROPIC_API_KEY
+    from groq_ai import _llamar_claude
+    if not ANTHROPIC_API_KEY:
+        return {"ok": False, "error": "ANTHROPIC_API_KEY no configurada"}
+    respuesta = await _llamar_claude(
+        messages=[{"role": "user", "content": "Respondé solo: hola"}],
+        max_tokens=50,
+    )
+    if respuesta:
+        return {"ok": True, "respuesta": respuesta}
+    return {"ok": False, "error": "Claude no respondió — revisá los logs"}
+
 
 @app.get("/test-odoo")
 async def test_odoo():
@@ -202,7 +250,7 @@ async def health():
     return {
         "status": "ok",
         "version": "5.0.0",
-        "modo": "AUTO_RESPUESTA" if AUTO_RESPUESTA else "GROQ_AI",
+        "modo": "AUTO_RESPUESTA" if AUTO_RESPUESTA else "CLAUDE",
         **(await stats()),
     }
 

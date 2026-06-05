@@ -27,6 +27,20 @@ def extraer_mensaje(data: dict) -> tuple[str, str]:
     return "", ""
 
 
+def extraer_archivos(data: dict) -> tuple[str, list[dict]]:
+    """Retorna (sender_id, lista de archivos) del payload de Instagram."""
+    entry = data.get("entry", [{}])[0]
+    for msg in entry.get("messaging", []):
+        sender_id = msg.get("sender", {}).get("id", "")
+        attachments = msg.get("message", {}).get("attachments", [])
+        if sender_id and attachments:
+            return sender_id, [
+                {"tipo": att.get("type", "file"), "url": att.get("payload", {}).get("url", "")}
+                for att in attachments if att.get("payload", {}).get("url")
+            ]
+    return "", []
+
+
 async def enviar_mensaje(client: httpx.AsyncClient, recipient_id: str, texto: str) -> bool:
     payload = {
         "recipient": {"id": recipient_id},

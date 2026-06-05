@@ -3,17 +3,27 @@
 # Nota: precios en pesos argentinos, sujetos a cambio sin previo aviso.
 
 # ─── CORTE CNC ────────────────────────────────────────────────────────────────
-
+Servicio de corte CNC: $39.500 la hora
 
 # ─── LAQUEADO POLIURETÁNICO ───────────────────────────────────────────────────
+# Precio por m²
 
+Transparente brillante: $66.000/m²
+Transparente satinado:  $55.000/m²
+Transparente mate:      $50.000/m²
+
+Blanco brillante:       $74.000/m²
+Blanco satinado:        $63.000/m²
+Blanco mate:            $58.000/m²
+
+Color brillante:        $80.000/m²
+Color satinado:         $69.000/m²
+Color mate:             $64.000/m²
 
 # ─── PRODUCTOS TERMINADOS ─────────────────────────────────────────────────────
 Placa ranurada MDF 18mm — 260x180 cm: $142.000
 
-
 # ─── ENVÍO ────────────────────────────────────────────────────────────────────
-
 
 # ─── NOTAS GENERALES ──────────────────────────────────────────────────────────
 - Los precios no incluyen diseño del archivo de corte.

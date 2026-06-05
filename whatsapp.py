@@ -21,6 +21,26 @@ def extraer_mensaje(data: dict) -> tuple[str, str]:
     return "", ""
 
 
+_TIPOS_MEDIA = ("image", "document", "video", "audio", "sticker")
+
+
+def extraer_archivos(data: dict) -> tuple[str, list[dict]]:
+    """Retorna (sender_id, lista de archivos) del payload de WhatsApp."""
+    entry = data.get("entry", [{}])[0]
+    for change in entry.get("changes", []):
+        for msg in change.get("value", {}).get("messages", []):
+            sender_id = msg.get("from", "")
+            tipo = msg.get("type", "")
+            if sender_id and tipo in _TIPOS_MEDIA:
+                media = msg.get(tipo, {})
+                return sender_id, [{
+                    "tipo": tipo,
+                    "media_id": media.get("id", ""),
+                    "mime_type": media.get("mime_type", ""),
+                }]
+    return "", []
+
+
 async def enviar_mensaje(client: httpx.AsyncClient, recipient_id: str, texto: str) -> bool:
     if not WA_ACCESS_TOKEN or not WA_PHONE_ID:
         log.error("WA_ACCESS_TOKEN o WA_PHONE_ID no configurados")
