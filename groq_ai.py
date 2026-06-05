@@ -11,10 +11,41 @@ _PALABRAS_PRECIO = {
     "precio", "precios", "presupuesto", "costo", "costos",
     "cuanto", "cuánto", "vale", "sale", "tarifa", "valor",
     "cotizacion", "cotización", "plata", "pesos", "cobran", "cobras",
-    # Productos con precio conocido — cargar lista proactivamente
+    # Clever CNC
     "placa", "ranurada", "laqueado", "laqueo", "lacar", "barniz",
     "corte cnc", "mecanizado", "ranurado",
 }
+
+_PALABRAS_CARTELERIA = {
+    "lona", "vinilo", "banner", "cartel", "letras", "acrilico", "acrílico",
+    "corpórea", "corpóreas", "señaletica", "señalética", "plotter",
+    "pvc", "polifan", "roll up", "portabanner", "fly banner", "blue back",
+    "canvas", "tela flag", "gigantografia", "gigantografía",
+    "rotulo", "rótulo", "ploteo", "aviso", "mesh", "backlight", "blackout",
+    "fachada", "vidriera", "local", "cartelería",
+}
+
+_PALABRAS_GRAFICA = {
+    "impresion", "impresión", "copia", "copias", "folleto",
+    "tarjeta", "talonario", "recetario", "dtf", "adhesivo", "sello",
+    "plastificado", "encuadernacion", "encuadernación",
+    "fotocopia", "a4", "a3", "sa3", "super a3",
+    "afiche", "poster", "póster", "flyer", "folleto",
+}
+
+
+def _detectar_flujo(mensaje: str) -> str | None:
+    texto = mensaje.lower()
+    carteleria = any(p in texto for p in _PALABRAS_CARTELERIA)
+    grafica    = any(p in texto for p in _PALABRAS_GRAFICA)
+    if carteleria and grafica:
+        return "ambos"
+    if carteleria:
+        return "carteleria"
+    if grafica:
+        return "grafica"
+    return None
+
 
 def _pide_precio(mensaje: str) -> bool:
     texto = mensaje.lower()
@@ -33,7 +64,8 @@ Respondé SOLO con un JSON válido con este formato exacto (sin explicaciones):
   "tiene_lead": true/false,
   "nombre": "nombre y apellido completo del cliente o null",
   "telefono": "teléfono o WhatsApp del cliente o null",
-  "descripcion": "resumen breve del pedido en 1-2 oraciones o null"
+  "descripcion": "resumen breve del pedido en 1-2 oraciones o null",
+  "destino": "carteleria" o "oficina"
 }
 
 "tiene_lead" debe ser true SOLO si se cumplen LAS TRES condiciones:
@@ -42,6 +74,10 @@ Respondé SOLO con un JSON válido con este formato exacto (sin explicaciones):
 3. El cliente tiene un pedido o consulta concreta (producto o proyecto definido)
 
 Si hay datos conocidos marcados con [Nombre conocido] o [Teléfono conocido], usarlos directamente sin requerir que el cliente los repita.
+
+"destino" debe ser:
+- "carteleria" si el pedido involucra letras corpóreas, señalética corpórea, acrílico con iluminación LED, estructuras o carteles de fachada tridimensionales
+- "oficina" en todos los demás casos: impresiones, lonas, vinilos, gran formato, DTF, copias, talonarios, tarjetas, sellos, adhesivos, banners, PVC, polifan
 """
 
 
@@ -147,11 +183,12 @@ async def _intentar_crear_lead(user_id: str, canal: str, historial: list,
             canonical_id = wa_id
             log.info("IG user %s vinculado a WA user %s", user_id, wa_id)
 
+    destino  = datos.get("destino") or "oficina"
     archivos = await obtener_archivos(canonical_id)
     from odoo_crm import crear_lead
     odoo_id = await crear_lead(
         nombre, telefono, descripcion, canal, user_id,
-        historial=historial, archivos=archivos,
+        historial=historial, archivos=archivos, destino=destino,
     ) or 0
     await guardar_lead(canonical_id, descripcion, canal, odoo_id)
     await guardar_datos_cliente(canonical_id, nombre=nombre, telefono=telefono)
@@ -169,7 +206,8 @@ async def generar_respuesta(user_id: str, mensaje: str, canal: str = "instagram"
     messages         = historial + [{"role": "user", "content": mensaje}]
 
     con_precios = _pide_precio(mensaje)
-    system      = get_system_prompt(con_precios=con_precios, canal=canal)
+    flujo       = _detectar_flujo(mensaje)
+    system      = get_system_prompt(con_precios=con_precios, canal=canal, flujo=flujo)
 
     if datos_cliente.get("nombre") or datos_cliente.get("telefono"):
         system += "\n\n## Datos conocidos del cliente"

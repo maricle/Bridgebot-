@@ -3,7 +3,8 @@ import logging
 
 import httpx
 
-from config import ODOO_API_KEY, ODOO_DB, ODOO_LOGIN, ODOO_URL
+from config import (ODOO_API_KEY, ODOO_DB, ODOO_DESTINO_CARTELERIA,
+                    ODOO_DESTINO_OFICINA, ODOO_LOGIN, ODOO_URL)
 
 log = logging.getLogger(__name__)
 
@@ -113,17 +114,32 @@ async def _adjuntar_archivo(client: httpx.AsyncClient, uid: int, lead_id: int,
         log.error("Error adjuntando archivo al lead %s: %s", lead_id, e)
 
 
+def _resolver_destino(destino: str) -> tuple[int | None, int | None]:
+    """Retorna (company_id, responsable_id) según el destino configurado."""
+    raw = ODOO_DESTINO_CARTELERIA if destino == "carteleria" else ODOO_DESTINO_OFICINA
+    if not raw:
+        return None, 1
+    partes = raw.split(":")
+    company_id    = int(partes[0]) if len(partes) > 0 and partes[0].isdigit() else None
+    responsable   = int(partes[1]) if len(partes) > 1 and partes[1].isdigit() else 1
+    return company_id, responsable
+
+
 async def crear_lead(nombre_cliente: str, telefono: str, descripcion: str,
                      canal: str = "instagram", user_id: str = "",
                      historial: list | None = None,
-                     archivos: list | None = None) -> int | None:
+                     archivos: list | None = None,
+                     destino: str = "oficina") -> int | None:
     if not ODOO_URL or not ODOO_API_KEY or not ODOO_LOGIN:
         log.warning("Odoo CRM no configurado — lead no creado")
         return None
 
-    titulo = f"[{canal.upper()}] {nombre_cliente or 'Cliente sin nombre'}"
+    company_id, responsable_id = _resolver_destino(destino)
+
+    titulo = f"[{canal.upper()}][{destino.upper()}] {nombre_cliente or 'Cliente sin nombre'}"
     cuerpo = (
         f"Canal: {canal}\n"
+        f"Área: {destino}\n"
         f"ID usuario: {user_id}\n"
         f"Teléfono: {telefono or 'No proporcionado'}\n\n"
         f"Resumen:\n{descripcion}"
@@ -136,15 +152,19 @@ async def crear_lead(nombre_cliente: str, telefono: str, descripcion: str,
             if not uid:
                 return None
 
-            lead_id = await _execute_kw(client, uid, "crm.lead", "create", [{
+            vals: dict = {
                 "name": titulo,
                 "partner_name": nombre_cliente or "Sin nombre",
                 "phone": telefono or "",
                 "description": cuerpo,
-                "user_id": 1,
-            }])
+                "user_id": responsable_id,
+            }
+            if company_id:
+                vals["company_id"] = company_id
 
-            log.info("Lead creado en Odoo CRM: id=%s canal=%s", lead_id, canal)
+            lead_id = await _execute_kw(client, uid, "crm.lead", "create", [vals])
+
+            log.info("Lead creado en Odoo CRM: id=%s canal=%s destino=%s", lead_id, canal, destino)
 
             for arch in (archivos or []):
                 await _adjuntar_archivo(client, uid, lead_id, arch, canal)

@@ -16,7 +16,8 @@ import whatsapp
 from config import AUTO_RESPUESTA, EXCLUIR_BOT, IG_ACCOUNT_ID, SALUDO, VERIFY_TOKEN
 from db import (conversacion_cerrada, es_usuario_nuevo, guardar_archivo,
                 init_db, marcar_saludado, obtener_canonical_id, obtener_conversacion,
-                obtener_leads, obtener_usuarios, resetear_cerrada, resetear_usuario, stats)
+                obtener_datos_cliente, obtener_leads, obtener_usuarios,
+                resetear_cerrada, resetear_usuario, stats)
 from groq_ai import generar_respuesta
 
 logging.basicConfig(level=logging.INFO, format="%(levelname)s: %(message)s")
@@ -110,7 +111,14 @@ async def procesar_instagram(data: dict):
             return
         if await conversacion_cerrada(sender_id):
             await resetear_cerrada(sender_id)
-            log.info("IG: nueva sesión para %s — lead anterior registrado.", sender_id)
+            canonical = await obtener_canonical_id(sender_id)
+            datos     = await obtener_datos_cliente(canonical)
+            nombre    = (datos.get("nombre") or "").split()[0]
+            saludo_r  = f"¡Hola {nombre}! ¿Te ayudo con tu pedido de hoy?" if nombre else SALUDO
+            async with httpx.AsyncClient() as client:
+                await instagram.enviar_mensaje(client, sender_id, saludo_r)
+            log.info("IG: saludo de retorno para %s (%s)", sender_id, nombre or "anon")
+            return
 
         log.info("IG user=%s: %s", sender_id, mensaje[:100])
         async with httpx.AsyncClient() as client:
@@ -175,7 +183,14 @@ async def procesar_whatsapp(data: dict):
             return
         if await conversacion_cerrada(sender_id):
             await resetear_cerrada(sender_id)
-            log.info("WA: nueva sesión para %s — lead anterior registrado.", sender_id)
+            canonical = await obtener_canonical_id(sender_id)
+            datos     = await obtener_datos_cliente(canonical)
+            nombre    = (datos.get("nombre") or "").split()[0]
+            saludo_r  = f"¡Hola {nombre}! ¿Te ayudo con tu pedido de hoy?" if nombre else SALUDO
+            async with httpx.AsyncClient() as client:
+                await whatsapp.enviar_mensaje(client, sender_id, saludo_r)
+            log.info("WA: saludo de retorno para %s (%s)", sender_id, nombre or "anon")
+            return
 
         log.info("WA user=%s: %s", sender_id, mensaje[:100])
         async with httpx.AsyncClient() as client:
