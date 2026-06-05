@@ -136,11 +136,6 @@ async def verificar_webhook_wa(request: Request):
 
 @app.post("/webhook/whatsapp")
 async def recibir_whatsapp(request: Request):
-    payload = await request.body()
-    firma   = request.headers.get("X-Hub-Signature-256", "")
-    if not instagram.verificar_firma(payload, firma):
-        log.warning("WA firma inválida — payload=%s firma=%s", payload[:80], firma[:40])
-        raise HTTPException(status_code=401, detail="Firma WA inválida")
     data = await request.json()
     log.info("WA webhook recibido: %s", str(data)[:200])
     asyncio.create_task(procesar_whatsapp(data))
