@@ -194,16 +194,21 @@ async def guardar_lead(user_id: str, resumen: str, canal: str = "instagram",
 
 
 async def tiene_lead_activo(user_id: str) -> bool:
+    """True si hay un lead creado en las últimas 2 horas (misma sesión)."""
     rows = await _query(
-        "SELECT id FROM leads WHERE ig_user_id = ? AND odoo_lead_id > 0", (user_id,)
+        """SELECT id FROM leads WHERE ig_user_id = ? AND odoo_lead_id > 0
+           AND creado_en > datetime('now', '-2 hours')""",
+        (user_id,)
     )
     return bool(rows)
 
 
 async def cerrar_conversacion(user_id: str):
-    await _run(
-        "UPDATE usuarios SET cerrada = 1 WHERE ig_user_id = ?", (user_id,)
-    )
+    await _run("UPDATE usuarios SET cerrada = 1 WHERE ig_user_id = ?", (user_id,))
+
+
+async def resetear_cerrada(user_id: str):
+    await _run("UPDATE usuarios SET cerrada = 0 WHERE ig_user_id = ?", (user_id,))
 
 
 async def conversacion_cerrada(user_id: str) -> bool:

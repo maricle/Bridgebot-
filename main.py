@@ -15,7 +15,8 @@ import instagram
 import whatsapp
 from config import AUTO_RESPUESTA, EXCLUIR_BOT, IG_ACCOUNT_ID, SALUDO, VERIFY_TOKEN
 from db import (conversacion_cerrada, es_usuario_nuevo, init_db, marcar_saludado,
-                obtener_conversacion, obtener_leads, obtener_usuarios, resetear_usuario, stats)
+                obtener_conversacion, obtener_leads, obtener_usuarios, resetear_cerrada,
+                resetear_usuario, stats)
 from groq_ai import generar_respuesta
 
 logging.basicConfig(level=logging.INFO, format="%(levelname)s: %(message)s")
@@ -97,8 +98,8 @@ async def procesar_instagram(data: dict):
             log.info("IG: atendido por humano %s, ignorando.", sender_id)
             return
         if await conversacion_cerrada(sender_id):
-            log.info("IG: lead activo — conversación cerrada para %s, ignorando.", sender_id)
-            return
+            await resetear_cerrada(sender_id)
+            log.info("IG: nueva sesión para %s — lead anterior registrado.", sender_id)
 
         log.info("IG user=%s: %s", sender_id, mensaje[:100])
         async with httpx.AsyncClient() as client:
@@ -155,8 +156,8 @@ async def procesar_whatsapp(data: dict):
             log.info("WA: atendido por humano %s, ignorando.", sender_id)
             return
         if await conversacion_cerrada(sender_id):
-            log.info("WA: lead activo — conversación cerrada para %s, ignorando.", sender_id)
-            return
+            await resetear_cerrada(sender_id)
+            log.info("WA: nueva sesión para %s — lead anterior registrado.", sender_id)
 
         log.info("WA user=%s: %s", sender_id, mensaje[:100])
         async with httpx.AsyncClient() as client:
