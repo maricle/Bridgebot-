@@ -190,6 +190,11 @@ async def tiene_lead_activo(user_id: str) -> bool:
     return bool(rows)
 
 
+async def conversacion_cerrada(user_id: str) -> bool:
+    rows = await _query("SELECT id FROM leads WHERE ig_user_id = ?", (user_id,))
+    return bool(rows)
+
+
 async def stats() -> dict:
     u = await _query("SELECT COUNT(*) as n FROM usuarios")
     l = await _query("SELECT COUNT(*) as n FROM leads")
