@@ -68,7 +68,7 @@ def _formatear_transcripcion(historial: list) -> str:
     for m in historial:
         rol = "Cliente" if m["role"] == "user" else "Bot"
         lineas.append(f"{rol}: {m['content']}")
-    return "\n".join(lineas)
+    return "\n\n".join(lineas)
 
 
 async def _adjuntar_archivo(client: httpx.AsyncClient, uid: int, lead_id: int,
