@@ -64,11 +64,14 @@ async def _execute_kw(client: httpx.AsyncClient, uid: int, model: str,
 def _formatear_transcripcion(historial: list) -> str:
     if not historial:
         return ""
-    lineas = ["\n\n--- TRANSCRIPCIÓN DEL CHAT ---"]
+    sep = "\n" + "─" * 45 + "\n"
+    bloques = ["\n\n━━━ TRANSCRIPCIÓN DEL CHAT ━━━"]
     for m in historial:
-        rol = "Cliente" if m["role"] == "user" else "Bot"
-        lineas.append(f"{rol}: {m['content']}")
-    return "\n\n".join(lineas)
+        if m["role"] == "user":
+            bloques.append(f"CLIENTE:\n{m['content']}")
+        else:
+            bloques.append(f"BOT:\n{m['content']}")
+    return sep.join(bloques)
 
 
 async def _adjuntar_archivo(client: httpx.AsyncClient, uid: int, lead_id: int,
