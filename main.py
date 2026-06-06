@@ -261,6 +261,24 @@ async def test_odoo():
     return {"ok": False, "mensaje": "Revisá los logs de Railway para ver el error exacto"}
 
 
+@app.get("/init-db")
+async def forzar_init_db():
+    """Fuerza la creación de tablas en Turso y muestra el resultado."""
+    from config import TURSO_URL
+    try:
+        await init_db()
+        tablas = await db_tablas()
+        return {"ok": True, "turso_url": TURSO_URL[:40] + "..." if TURSO_URL else "no configurada", "tablas": tablas}
+    except Exception as e:
+        return {"ok": False, "error": str(e)}
+
+
+async def db_tablas() -> list[str]:
+    from db import _query
+    rows = await _query("SELECT name FROM sqlite_master WHERE type='table' ORDER BY name")
+    return [r["name"] for r in rows]
+
+
 @app.get("/actualizar-precios")
 async def actualizar_precios():
     from precios import cargar as cargar_precios, obtener

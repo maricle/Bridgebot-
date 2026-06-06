@@ -177,9 +177,13 @@ async def init_db():
                     timeout=15,
                 )
                 resp.raise_for_status()
+            # Verificar errores individuales dentro del pipeline
+            for i, result in enumerate(resp.json().get("results", [])):
+                if result.get("type") == "error":
+                    log.error("Turso CREATE TABLE #%d error: %s", i, result.get("error"))
             log.info("Turso DB lista: %s", TURSO_URL)
         except Exception as e:
-            log.critical("ERROR conectando a Turso: %s — la app puede fallar", e)
+            log.critical("ERROR conectando a Turso: %s — URL=%s", e, TURSO_URL)
         for col_sql in [
             "ALTER TABLE usuarios ADD COLUMN cerrada      INTEGER DEFAULT 0",
             "ALTER TABLE usuarios ADD COLUMN nombre       TEXT    DEFAULT ''",
