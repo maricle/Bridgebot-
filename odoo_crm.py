@@ -149,6 +149,24 @@ async def sincronizar_clientes() -> list[dict]:
         return []
 
 
+async def actualizar_partner(odoo_id: int, email: str = "") -> bool:
+    """Actualiza email de un res.partner en Odoo."""
+    if not odoo_id or not email or not ODOO_URL:
+        return False
+    try:
+        async with httpx.AsyncClient() as client:
+            uid = await _autenticar(client)
+            if not uid:
+                return False
+            await _execute_kw(client, uid, "res.partner", "write",
+                              [[odoo_id], {"email": email}])
+            log.info("Partner Odoo %s — email actualizado", odoo_id)
+            return True
+    except Exception as e:
+        log.error("Error actualizando partner Odoo %s: %s", odoo_id, e)
+        return False
+
+
 def _resolver_destino(destino: str) -> tuple[int | None, int | None]:
     """Retorna (company_id, responsable_id) según el destino configurado."""
     raw = ODOO_DESTINO_CARTELERIA if destino == "carteleria" else ODOO_DESTINO_OFICINA
@@ -164,7 +182,8 @@ async def crear_lead(nombre_cliente: str, telefono: str, descripcion: str,
                      canal: str = "instagram", user_id: str = "",
                      historial: list | None = None,
                      archivos: list | None = None,
-                     destino: str = "oficina") -> int | None:
+                     destino: str = "oficina",
+                     email: str = "") -> int | None:
     if not ODOO_URL or not ODOO_API_KEY or not ODOO_LOGIN:
         log.warning("Odoo CRM no configurado — lead no creado")
         return None
@@ -191,6 +210,7 @@ async def crear_lead(nombre_cliente: str, telefono: str, descripcion: str,
                 "name": titulo,
                 "partner_name": nombre_cliente or "Sin nombre",
                 "phone": telefono or "",
+                "email_from": email or "",
                 "description": cuerpo,
                 "user_id": responsable_id,
             }

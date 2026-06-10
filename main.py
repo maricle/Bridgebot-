@@ -14,7 +14,8 @@ from fastapi.responses import PlainTextResponse
 import instagram
 import whatsapp
 from config import AUTO_RESPUESTA, EXCLUIR_BOT, IG_ACCOUNT_ID, SALUDO, VERIFY_TOKEN
-from db import (conversacion_cerrada, es_usuario_nuevo, guardar_archivo,
+from db import (buscar_cliente_odoo_por_telefono, conversacion_cerrada,
+                es_usuario_nuevo, guardar_archivo, guardar_datos_cliente,
                 init_db, marcar_saludado, obtener_canonical_id, obtener_conversacion,
                 obtener_datos_cliente, obtener_leads, obtener_usuarios,
                 resetear_cerrada, resetear_usuario, stats)
@@ -207,10 +208,19 @@ async def procesar_whatsapp(data: dict):
 
         log.info("WA user=%s: %s", sender_id, mensaje[:100])
         async with httpx.AsyncClient() as client:
-            nuevo     = await es_usuario_nuevo(sender_id)
+            nuevo = await es_usuario_nuevo(sender_id)
             if nuevo:
                 await marcar_saludado(sender_id, "whatsapp")
-                await whatsapp.enviar_mensaje(client, sender_id, SALUDO)
+                odoo_match = await buscar_cliente_odoo_por_telefono(sender_id)
+                if odoo_match and odoo_match.get("nombre"):
+                    nombre_corto = odoo_match["nombre"].split()[0]
+                    saludo_p = f"¡Hola {nombre_corto}! ¿En qué te puedo ayudar hoy?"
+                    await guardar_datos_cliente(sender_id, nombre=odoo_match["nombre"],
+                                                email=odoo_match.get("email") or "")
+                    await whatsapp.enviar_mensaje(client, sender_id, saludo_p)
+                    log.info("WA: saludo personalizado para %s (%s)", sender_id, odoo_match["nombre"])
+                else:
+                    await whatsapp.enviar_mensaje(client, sender_id, SALUDO)
             respuesta = await generar_respuesta(sender_id, mensaje, "whatsapp")
             await whatsapp.enviar_mensaje(client, sender_id, respuesta)
 

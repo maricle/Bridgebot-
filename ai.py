@@ -65,6 +65,7 @@ Respondé SOLO con un JSON válido con este formato exacto (sin explicaciones):
   "tiene_lead": true/false,
   "nombre": "nombre y apellido completo del cliente o null",
   "telefono": "teléfono o WhatsApp del cliente o null",
+  "email": "email del cliente o null",
   "descripcion": "resumen breve del pedido en 1-2 oraciones o null",
   "destino": "carteleria" o "oficina"
 }
@@ -74,8 +75,8 @@ Respondé SOLO con un JSON válido con este formato exacto (sin explicaciones):
 2. Se conoce el teléfono o WhatsApp del cliente (puede venir de los datos conocidos al inicio)
 3. El cliente tiene un pedido o consulta concreta (producto o proyecto definido)
 
-Si hay datos conocidos marcados con [Nombre conocido] o [Teléfono conocido], usarlos por defecto.
-EXCEPCIÓN: si el cliente declaró explícitamente datos DISTINTOS en la conversación (por ejemplo "mi nombre es X" o "el teléfono es Y" o "no, usá el..."), usar los datos que el cliente proporcionó — no los datos previos.
+Si hay datos conocidos marcados con [Nombre conocido], [Teléfono conocido] o [Email conocido], usarlos por defecto.
+EXCEPCIÓN: si el cliente declaró explícitamente datos DISTINTOS en la conversación, usar los datos que el cliente proporcionó.
 
 "destino" debe ser:
 - "carteleria" si el pedido involucra letras corpóreas, señalética corpórea, acrílico con iluminación LED, estructuras o carteles de fachada tridimensionales
@@ -171,6 +172,7 @@ async def _intentar_crear_lead(user_id: str, canal: str, historial: list,
 
     nombre      = datos.get("nombre") or ""
     telefono    = datos.get("telefono") or ""
+    email       = datos.get("email") or ""
     descripcion = datos.get("descripcion") or ""
 
     # En WhatsApp el user_id ES el número de teléfono
@@ -187,13 +189,20 @@ async def _intentar_crear_lead(user_id: str, canal: str, historial: list,
 
     destino  = datos.get("destino") or "oficina"
     archivos = await obtener_archivos(canonical_id)
-    from odoo_crm import crear_lead
+    from odoo_crm import crear_lead, actualizar_partner
     odoo_id = await crear_lead(
         nombre, telefono, descripcion, canal, user_id,
-        historial=historial, archivos=archivos, destino=destino,
+        historial=historial, archivos=archivos, destino=destino, email=email,
     ) or 0
     await guardar_lead(canonical_id, descripcion, canal, odoo_id)
-    await guardar_datos_cliente(canonical_id, nombre=nombre, telefono=telefono)
+    await guardar_datos_cliente(canonical_id, nombre=nombre, telefono=telefono, email=email)
+
+    # Actualizar email del partner en Odoo si lo tenemos
+    if email:
+        odoo_match = await buscar_cliente_odoo_por_telefono(telefono or canonical_id)
+        if odoo_match and odoo_match.get("odoo_id"):
+            await actualizar_partner(int(odoo_match["odoo_id"]), email=email)
+
     log.info("Lead creado en Odoo — canonical=%s odoo_id=%s", canonical_id, odoo_id)
 
 
@@ -209,8 +218,11 @@ async def generar_respuesta(user_id: str, mensaje: str, canal: str = "instagram"
     if canal == "whatsapp" and not datos_cliente.get("nombre"):
         odoo_match = await buscar_cliente_odoo_por_telefono(canonical_id)
         if odoo_match and odoo_match.get("nombre"):
-            await guardar_datos_cliente(canonical_id, nombre=odoo_match["nombre"])
+            email_odoo = odoo_match.get("email") or ""
+            await guardar_datos_cliente(canonical_id, nombre=odoo_match["nombre"], email=email_odoo)
             datos_cliente["nombre"] = odoo_match["nombre"]
+            if email_odoo:
+                datos_cliente["email"] = email_odoo
             log.info("Cliente WA %s identificado desde Odoo: %s", canonical_id, odoo_match["nombre"])
 
     messages = historial + [{"role": "user", "content": mensaje}]
@@ -219,18 +231,20 @@ async def generar_respuesta(user_id: str, mensaje: str, canal: str = "instagram"
     flujo       = _detectar_flujo(mensaje)
     system      = get_system_prompt(con_precios=con_precios, canal=canal, flujo=flujo)
 
-    if datos_cliente.get("nombre") or datos_cliente.get("telefono"):
+    tiene_datos = datos_cliente.get("nombre") or datos_cliente.get("telefono")
+    if tiene_datos:
         system += "\n\n## Datos conocidos del cliente"
         if datos_cliente.get("nombre"):
             system += f"\nNombre: {datos_cliente['nombre']}"
         if datos_cliente.get("telefono"):
             system += f"\nTeléfono/WA: {datos_cliente['telefono']}"
+        if datos_cliente.get("email"):
+            system += f"\nEmail: {datos_cliente['email']}"
+        else:
+            system += "\nEmail: (no registrado — pedirlo en algún momento de la conversación)"
         system += (
-            "\nAntes de generar un nuevo pedido, confirmá con el cliente: "
-            "\"Voy a generar el pedido a nombre de [nombre], ¿uso el mismo número de teléfono?\"\n"
-            "- Si confirma: registrá el pedido con esos datos.\n"
-            "- Si corrige el nombre o el teléfono: aceptá el dato nuevo, repetilo para confirmar "
-            "y recién entonces registrá el pedido con la información actualizada."
+            "\nDatos de contacto ya conocidos — NO volver a pedirlos a menos que el cliente los corrija."
+            "\nSi el cliente corrige algún dato, aceptá el nuevo, confirmalo y registrá el pedido con la info actualizada."
         )
 
     respuesta = await _llamar_claude(messages=messages, system=system)

@@ -185,6 +185,7 @@ async def init_db():
             "ALTER TABLE usuarios ADD COLUMN nombre       TEXT    DEFAULT ''",
             "ALTER TABLE usuarios ADD COLUMN telefono     TEXT    DEFAULT ''",
             "ALTER TABLE usuarios ADD COLUMN canonical_id TEXT    DEFAULT ''",
+            "ALTER TABLE usuarios ADD COLUMN email        TEXT    DEFAULT ''",
         ]:
             try:
                 await _turso(col_sql)
@@ -199,6 +200,7 @@ async def init_db():
             "ALTER TABLE usuarios ADD COLUMN nombre       TEXT    DEFAULT ''",
             "ALTER TABLE usuarios ADD COLUMN telefono     TEXT    DEFAULT ''",
             "ALTER TABLE usuarios ADD COLUMN canonical_id TEXT    DEFAULT ''",
+            "ALTER TABLE usuarios ADD COLUMN email        TEXT    DEFAULT ''",
         ]:
             try:
                 with sqlite3.connect(DB_PATH) as con:
@@ -294,25 +296,29 @@ async def vincular_usuario(user_id: str, canonical_id: str):
     log.info("Usuario %s vinculado a canonical %s", user_id, canonical_id)
 
 
-async def guardar_datos_cliente(user_id: str, nombre: str = "", telefono: str = ""):
-    if nombre and telefono:
-        await _run(
-            "UPDATE usuarios SET nombre = ?, telefono = ? WHERE ig_user_id = ?",
-            (nombre, telefono, user_id),
-        )
-    elif nombre:
-        await _run("UPDATE usuarios SET nombre = ? WHERE ig_user_id = ?", (nombre, user_id))
-    elif telefono:
-        await _run("UPDATE usuarios SET telefono = ? WHERE ig_user_id = ?", (telefono, user_id))
+async def guardar_datos_cliente(user_id: str, nombre: str = "", telefono: str = "", email: str = ""):
+    sets, vals = [], []
+    if nombre:
+        sets.append("nombre = ?");   vals.append(nombre)
+    if telefono:
+        sets.append("telefono = ?"); vals.append(telefono)
+    if email:
+        sets.append("email = ?");    vals.append(email)
+    if sets:
+        await _run(f"UPDATE usuarios SET {', '.join(sets)} WHERE ig_user_id = ?", (*vals, user_id))
 
 
 async def obtener_datos_cliente(user_id: str) -> dict:
     rows = await _query(
-        "SELECT nombre, telefono FROM usuarios WHERE ig_user_id = ?", (user_id,)
+        "SELECT nombre, telefono, email FROM usuarios WHERE ig_user_id = ?", (user_id,)
     )
     if rows:
-        return {"nombre": rows[0].get("nombre") or "", "telefono": rows[0].get("telefono") or ""}
-    return {"nombre": "", "telefono": ""}
+        return {
+            "nombre":   rows[0].get("nombre")   or "",
+            "telefono": rows[0].get("telefono") or "",
+            "email":    rows[0].get("email")    or "",
+        }
+    return {"nombre": "", "telefono": "", "email": ""}
 
 
 async def conversacion_cerrada(user_id: str) -> bool:
