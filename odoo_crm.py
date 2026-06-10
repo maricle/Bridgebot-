@@ -183,7 +183,8 @@ async def crear_lead(nombre_cliente: str, telefono: str, descripcion: str,
                      historial: list | None = None,
                      archivos: list | None = None,
                      destino: str = "oficina",
-                     email: str = "") -> int | None:
+                     email: str = "",
+                     requiere_diseno: bool = False) -> int | None:
     if not ODOO_URL or not ODOO_API_KEY or not ODOO_LOGIN:
         log.warning("Odoo CRM no configurado — lead no creado")
         return None
@@ -217,6 +218,21 @@ async def crear_lead(nombre_cliente: str, telefono: str, descripcion: str,
 
             lead_id = await _execute_kw(client, uid, "crm.lead", "create", [vals])
             log.info("Lead creado en Odoo CRM: id=%s canal=%s destino=%s", lead_id, canal, destino)
+
+            # Agregar etiqueta "Diseño" si el cliente pidió diseño
+            if requiere_diseno:
+                try:
+                    tag_ids = await _execute_kw(
+                        client, uid, "crm.tag", "search", [[["name", "=", "Diseño"]]]
+                    )
+                    tag_id = tag_ids[0] if tag_ids else await _execute_kw(
+                        client, uid, "crm.tag", "create", [{"name": "Diseño"}]
+                    )
+                    await _execute_kw(client, uid, "crm.lead", "write",
+                                      [[lead_id], {"tag_ids": [(4, tag_id)]}])
+                    log.info("Etiqueta Diseño agregada al lead %s", lead_id)
+                except Exception as e:
+                    log.warning("No se pudo agregar etiqueta Diseño: %s", e)
 
             # Suscribir usuarios adicionales al lead
             if ODOO_NOTIFICAR_USUARIOS:

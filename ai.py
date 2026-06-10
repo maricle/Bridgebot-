@@ -67,7 +67,8 @@ Respondé SOLO con un JSON válido con este formato exacto (sin explicaciones):
   "telefono": "teléfono o WhatsApp del cliente o null",
   "email": "email del cliente o null",
   "descripcion": "resumen breve del pedido en 1-2 oraciones o null",
-  "destino": "carteleria" o "oficina"
+  "destino": "carteleria" o "oficina",
+  "requiere_diseno": true/false
 }
 
 "tiene_lead" debe ser true SOLO si se cumplen LAS TRES condiciones:
@@ -81,6 +82,8 @@ EXCEPCIÓN: si el cliente declaró explícitamente datos DISTINTOS en la convers
 "destino" debe ser:
 - "carteleria" si el pedido involucra letras corpóreas, señalética corpórea, acrílico con iluminación LED, estructuras o carteles de fachada tridimensionales
 - "oficina" en todos los demás casos: impresiones, lonas, vinilos, gran formato, DTF, copias, talonarios, tarjetas, sellos, adhesivos, banners, PVC, polifan
+
+"requiere_diseno" debe ser true si el cliente pidió diseño desde cero, hablar con el diseñador, hacer un logo, imagen, ilustración o arte que no tiene preparado.
 """
 
 
@@ -187,12 +190,14 @@ async def _intentar_crear_lead(user_id: str, canal: str, historial: list,
             canonical_id = wa_id
             log.info("IG user %s vinculado a WA user %s", user_id, wa_id)
 
-    destino  = datos.get("destino") or "oficina"
-    archivos = await obtener_archivos(canonical_id)
+    destino         = datos.get("destino") or "oficina"
+    requiere_diseno = datos.get("requiere_diseno", False)
+    archivos        = await obtener_archivos(canonical_id)
     from odoo_crm import crear_lead, actualizar_partner
     odoo_id = await crear_lead(
         nombre, telefono, descripcion, canal, user_id,
         historial=historial, archivos=archivos, destino=destino, email=email,
+        requiere_diseno=requiere_diseno,
     ) or 0
     await guardar_lead(canonical_id, descripcion, canal, odoo_id)
     await guardar_datos_cliente(canonical_id, nombre=nombre, telefono=telefono, email=email)
