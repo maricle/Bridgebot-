@@ -61,7 +61,7 @@ def _arg(val):
     return {"type": "text", "value": str(val)}
 
 
-async def _turso(sql: str, args=()) -> dict:
+async def _turso(sql: str, args=(), silent: bool = False) -> dict:
     stmt = {"sql": sql}
     if args:
         stmt["args"] = [_arg(a) for a in args]
@@ -73,11 +73,13 @@ async def _turso(sql: str, args=()) -> dict:
             timeout=10,
         )
         if resp.status_code != 200:
-            log.error("Turso error %s — SQL: %s — Resp: %s", resp.status_code, sql[:80], resp.text[:200])
+            if not silent:
+                log.error("Turso error %s — SQL: %s — Resp: %s", resp.status_code, sql[:80], resp.text[:200])
             resp.raise_for_status()
     result = resp.json()["results"][0]
     if result.get("type") == "error":
-        log.error("Turso query error — SQL: %s — Error: %s", sql[:80], result.get("error"))
+        if not silent:
+            log.error("Turso query error — SQL: %s — Error: %s", sql[:80], result.get("error"))
         raise RuntimeError(result["error"]["message"])
     return result["response"]["result"]
 
@@ -188,7 +190,7 @@ async def init_db():
             "ALTER TABLE usuarios ADD COLUMN email        TEXT    DEFAULT ''",
         ]:
             try:
-                await _turso(col_sql)
+                await _turso(col_sql, silent=True)
             except Exception:
                 pass  # columna ya existe
     else:
