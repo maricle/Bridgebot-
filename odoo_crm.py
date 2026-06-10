@@ -73,19 +73,6 @@ def _transcripcion_texto(historial: list) -> str:
     return sep.join(lineas)
 
 
-def _transcripcion_html(historial: list) -> str:
-    import html as _html
-    if not historial:
-        return ""
-    lineas = ["<p><strong>Transcripción del chat:</strong></p>"]
-    for m in historial:
-        contenido = _html.escape(m["content"])
-        if m["role"] == "user":
-            lineas.append(f"<p><b>Cliente:</b> {contenido}</p>")
-        else:
-            lineas.append(f"<p><b>Bot:</b> {contenido}</p>")
-    return "\n".join(lineas)
-
 
 async def _adjuntar_archivo(client: httpx.AsyncClient, uid: int, lead_id: int,
                              arch: dict, canal: str):
@@ -265,28 +252,6 @@ async def crear_lead(nombre_cliente: str, telefono: str, descripcion: str,
                                           [[lead_id]], {"partner_ids": pids})
                 except Exception as e:
                     log.warning("No se pudieron suscribir usuarios adicionales: %s", e)
-
-            # Notificar en chatter con resumen + transcripción HTML
-            try:
-                canal_label = "WhatsApp" if canal == "whatsapp" else "Instagram"
-                transcripcion = _transcripcion_html(historial or [])
-                body = (
-                    f"<p>Nuevo lead desde <b>{canal_label}</b> vía BridgeBot.</p>"
-                    f"<p>"
-                    f"<b>Cliente:</b> {nombre_cliente or 'Sin nombre'}<br/>"
-                    f"<b>Teléfono:</b> {telefono or 'No proporcionado'}<br/>"
-                    f"<b>Área:</b> {destino}"
-                    f"</p>"
-                    f"<p>{descripcion}</p>"
-                    f"<hr/>"
-                    f"{transcripcion}"
-                )
-                await _execute_kw(
-                    client, uid, "crm.lead", "message_post", [[lead_id]],
-                    {"body": body, "message_type": "comment", "subtype_xmlid": "mail.mt_comment"},
-                )
-            except Exception as e:
-                log.warning("No se pudo publicar mensaje en chatter: %s", e)
 
             for arch in (archivos or []):
                 await _adjuntar_archivo(client, uid, lead_id, arch, canal)
