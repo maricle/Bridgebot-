@@ -275,10 +275,28 @@ async def actualizar_precios():
 
 @app.get("/health")
 async def health():
+    from config import WA_ACCESS_TOKEN, WA_PHONE_ID
+    wa_ok = False
+    wa_numero = None
+    if WA_ACCESS_TOKEN and WA_PHONE_ID:
+        try:
+            async with httpx.AsyncClient() as client:
+                resp = await client.get(
+                    f"https://graph.facebook.com/v19.0/{WA_PHONE_ID}",
+                    params={"access_token": WA_ACCESS_TOKEN},
+                    timeout=8,
+                )
+                if resp.status_code == 200:
+                    data = resp.json()
+                    wa_ok = True
+                    wa_numero = data.get("display_phone_number")
+        except Exception:
+            pass
     return {
         "status": "ok",
         "version": "5.0.0",
         "modo": "AUTO_RESPUESTA" if AUTO_RESPUESTA else "CLAUDE",
+        "whatsapp": {"ok": wa_ok, "numero": wa_numero},
         **(await stats()),
     }
 
