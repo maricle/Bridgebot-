@@ -129,7 +129,7 @@ async def sincronizar_clientes() -> list[dict]:
             partners = await _execute_kw(
                 client, uid, "res.partner", "search_read",
                 [[["phone", "!=", False]]],
-                {"fields": ["id", "name", "phone", "mobile", "email"], "limit": 5000},
+                {"fields": ["id", "name", "phone", "email"], "limit": 5000},
             )
         clientes = []
         for p in partners:
