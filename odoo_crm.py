@@ -62,6 +62,17 @@ async def _execute_kw(client: httpx.AsyncClient, uid: int, model: str,
     return data["result"]
 
 
+def _transcripcion_texto(historial: list) -> str:
+    if not historial:
+        return ""
+    sep = "\n" + "─" * 40 + "\n"
+    lineas = ["\n\nTRANSCRIPCIÓN DEL CHAT\n" + "─" * 40]
+    for m in historial:
+        label = "Cliente" if m["role"] == "user" else "Bot"
+        lineas.append(f"{label}: {m['content']}")
+    return sep.join(lineas)
+
+
 def _transcripcion_html(historial: list) -> str:
     import html as _html
     if not historial:
@@ -203,6 +214,7 @@ async def crear_lead(nombre_cliente: str, telefono: str, descripcion: str,
         f"Área: {destino}\n"
         f"Teléfono: {telefono or 'No proporcionado'}\n\n"
         f"{descripcion}"
+        + _transcripcion_texto(historial or [])
     )
 
     try:
