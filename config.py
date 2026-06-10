@@ -42,22 +42,22 @@ def _leer_archivo(nombre: str) -> str:
 
 
 def _leer_conocimiento_base() -> str:
-    """Carga conocimiento.txt + 01_* (reglas generales, siempre presentes)."""
+    """Carga conocimiento.md + 01_* (reglas generales, siempre presentes)."""
     import glob
     base_dir = os.path.dirname(os.path.abspath(__file__))
     knowledge_dir = os.path.join(base_dir, "knowledge")
-    partes = [_leer_archivo("conocimiento.txt")]
-    for filepath in sorted(glob.glob(os.path.join(knowledge_dir, "01_*.txt"))):
+    partes = [_leer_archivo("conocimiento.md")]
+    for filepath in sorted(glob.glob(os.path.join(knowledge_dir, "01_*.md"))):
         contenido = _leer_archivo(os.path.basename(filepath))
         if contenido:
             partes.append(contenido)
     return "\n\n---\n\n".join(p for p in partes if p)
 
 
-_agente              = _leer_archivo("agente.txt")
+_agente              = _leer_archivo("agente.md")
 _conocimiento        = _leer_conocimiento_base()
-_flujo_carteleria    = _leer_archivo("02_flujo_carteleria.txt")
-_flujo_grafica       = _leer_archivo("03_flujo_grafica_impresiones.txt")
+_flujo_carteleria    = _leer_archivo("02_flujo_carteleria.md")
+_flujo_grafica       = _leer_archivo("03_flujo_grafica_impresiones.md")
 
 _PROMPT_BASE = os.environ.get("BOT_SYSTEM_PROMPT", "")
 
