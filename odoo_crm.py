@@ -63,14 +63,16 @@ async def _execute_kw(client: httpx.AsyncClient, uid: int, model: str,
 
 
 def _transcripcion_html(historial: list) -> str:
+    import html as _html
     if not historial:
         return ""
     lineas = ["<p><strong>Transcripción del chat:</strong></p>"]
     for m in historial:
+        contenido = _html.escape(m["content"])
         if m["role"] == "user":
-            lineas.append(f"<p><b>Cliente:</b> {m['content']}</p>")
+            lineas.append(f"<p><b>Cliente:</b> {contenido}</p>")
         else:
-            lineas.append(f"<p><b>Bot:</b> {m['content']}</p>")
+            lineas.append(f"<p><b>Bot:</b> {contenido}</p>")
     return "\n".join(lineas)
 
 
@@ -80,6 +82,9 @@ async def _adjuntar_archivo(client: httpx.AsyncClient, uid: int, lead_id: int,
     try:
         content = None
         filename = f"adjunto_{arch.get('media_id') or 'ig'}"
+
+        _TIPO_EXT = {"image": "jpg", "video": "mp4", "audio": "m4a",
+                     "document": "pdf", "sticker": "webp"}
 
         if canal == "whatsapp" and arch.get("media_id"):
             from config import WA_ACCESS_TOKEN
@@ -103,7 +108,8 @@ async def _adjuntar_archivo(client: httpx.AsyncClient, uid: int, lead_id: int,
             if dl.status_code == 200:
                 content = dl.content
                 tipo = arch.get("tipo", "file")
-                filename = f"{filename}.{tipo}"
+                ext = _TIPO_EXT.get(tipo, tipo)
+                filename = f"{filename}.{ext}"
 
         if content:
             await _execute_kw(client, uid, "ir.attachment", "create", [{
@@ -133,7 +139,7 @@ async def sincronizar_clientes() -> list[dict]:
             )
         clientes = []
         for p in partners:
-            tel = p.get("phone") or p.get("mobile") or ""
+            tel = p.get("phone") or ""
             digitos = "".join(c for c in tel if c.isdigit())
             if len(digitos) >= 7:
                 clientes.append({
