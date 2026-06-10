@@ -18,7 +18,7 @@ from db import (conversacion_cerrada, es_usuario_nuevo, guardar_archivo,
                 init_db, marcar_saludado, obtener_canonical_id, obtener_conversacion,
                 obtener_datos_cliente, obtener_leads, obtener_usuarios,
                 resetear_cerrada, resetear_usuario, stats)
-from groq_ai import generar_respuesta
+from ai import generar_respuesta
 
 logging.basicConfig(level=logging.INFO, format="%(levelname)s: %(message)s")
 log = logging.getLogger(__name__)
@@ -223,7 +223,7 @@ async def procesar_whatsapp(data: dict):
 @app.get("/test-claude")
 async def test_claude():
     from config import ANTHROPIC_API_KEY
-    from groq_ai import _llamar_claude
+    from ai import _llamar_claude
     if not ANTHROPIC_API_KEY:
         return {"ok": False, "error": "ANTHROPIC_API_KEY no configurada"}
     respuesta = await _llamar_claude(

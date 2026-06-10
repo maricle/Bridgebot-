@@ -194,8 +194,7 @@ async def _intentar_crear_lead(user_id: str, canal: str, historial: list,
     ) or 0
     await guardar_lead(canonical_id, descripcion, canal, odoo_id)
     await guardar_datos_cliente(canonical_id, nombre=nombre, telefono=telefono)
-    await cerrar_conversacion(canonical_id)
-    log.info("Lead creado y conversación cerrada — canonical=%s odoo_id=%s", canonical_id, odoo_id)
+    log.info("Lead creado en Odoo — canonical=%s odoo_id=%s", canonical_id, odoo_id)
 
 
 async def generar_respuesta(user_id: str, mensaje: str, canal: str = "instagram") -> str:
@@ -245,6 +244,12 @@ async def generar_respuesta(user_id: str, mensaje: str, canal: str = "instagram"
     await guardar_mensaje(canonical_id, "assistant", respuesta)
 
     asyncio.create_task(_intentar_crear_lead(user_id, canal, messages, canonical_id))
+
+    # Cierra la conversación solo cuando el bot envió el mensaje de confirmación de lead
+    _FRASE_CIERRE = "ya registré tu consulta"
+    if _FRASE_CIERRE in respuesta.lower():
+        asyncio.create_task(cerrar_conversacion(canonical_id))
+        log.info("Conversación cerrada por frase de cierre — canonical=%s", canonical_id)
 
     log.info("Claude [%s] user=%s: %s...", canal, user_id, respuesta[:80])
     return respuesta
