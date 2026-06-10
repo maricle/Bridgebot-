@@ -62,17 +62,16 @@ async def _execute_kw(client: httpx.AsyncClient, uid: int, model: str,
     return data["result"]
 
 
-def _formatear_transcripcion(historial: list) -> str:
+def _transcripcion_html(historial: list) -> str:
     if not historial:
         return ""
-    sep = "\n" + "─" * 45 + "\n"
-    bloques = ["\n\n━━━ TRANSCRIPCIÓN DEL CHAT ━━━"]
+    lineas = ["<p><strong>Transcripción del chat:</strong></p>"]
     for m in historial:
         if m["role"] == "user":
-            bloques.append(f"CLIENTE:\n{m['content']}")
+            lineas.append(f"<p><b>Cliente:</b> {m['content']}</p>")
         else:
-            bloques.append(f"BOT:\n{m['content']}")
-    return sep.join(bloques)
+            lineas.append(f"<p><b>Bot:</b> {m['content']}</p>")
+    return "\n".join(lineas)
 
 
 async def _adjuntar_archivo(client: httpx.AsyncClient, uid: int, lead_id: int,
@@ -195,10 +194,8 @@ async def crear_lead(nombre_cliente: str, telefono: str, descripcion: str,
     cuerpo = (
         f"Canal: {canal}\n"
         f"Área: {destino}\n"
-        f"ID usuario: {user_id}\n"
         f"Teléfono: {telefono or 'No proporcionado'}\n\n"
-        f"Resumen:\n{descripcion}"
-        + _formatear_transcripcion(historial or [])
+        f"{descripcion}"
     )
 
     try:
@@ -235,22 +232,24 @@ async def crear_lead(nombre_cliente: str, telefono: str, descripcion: str,
                 except Exception as e:
                     log.warning("No se pudieron suscribir usuarios adicionales: %s", e)
 
-            # Notificar al responsable y followers con un mensaje en el chatter
+            # Notificar en chatter con resumen + transcripción HTML
             try:
                 canal_label = "WhatsApp" if canal == "whatsapp" else "Instagram"
+                transcripcion = _transcripcion_html(historial or [])
+                body = (
+                    f"<p>Nuevo lead desde <b>{canal_label}</b> vía BridgeBot.</p>"
+                    f"<p>"
+                    f"<b>Cliente:</b> {nombre_cliente or 'Sin nombre'}<br/>"
+                    f"<b>Teléfono:</b> {telefono or 'No proporcionado'}<br/>"
+                    f"<b>Área:</b> {destino}"
+                    f"</p>"
+                    f"<p>{descripcion}</p>"
+                    f"<hr/>"
+                    f"{transcripcion}"
+                )
                 await _execute_kw(
                     client, uid, "crm.lead", "message_post", [[lead_id]],
-                    {
-                        "body": (
-                            f"<p>📩 Nuevo lead generado desde <b>{canal_label}</b> vía BridgeBot.</p>"
-                            f"<p><b>Cliente:</b> {nombre_cliente or 'Sin nombre'}<br/>"
-                            f"<b>Teléfono:</b> {telefono or 'No proporcionado'}<br/>"
-                            f"<b>Área:</b> {destino}</p>"
-                            f"<p>{descripcion}</p>"
-                        ),
-                        "message_type": "comment",
-                        "subtype_xmlid": "mail.mt_comment",
-                    },
+                    {"body": body, "message_type": "comment", "subtype_xmlid": "mail.mt_comment"},
                 )
             except Exception as e:
                 log.warning("No se pudo publicar mensaje en chatter: %s", e)
