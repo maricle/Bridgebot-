@@ -188,7 +188,8 @@ async def crear_lead(nombre_cliente: str, telefono: str, descripcion: str,
                      archivos: list | None = None,
                      destino: str = "oficina",
                      email: str = "",
-                     requiere_diseno: bool = False) -> int | None:
+                     requiere_diseno: bool = False,
+                     partner_id: int | None = None) -> int | None:
     if not ODOO_URL or not ODOO_API_KEY or not ODOO_LOGIN:
         log.warning("Odoo CRM no configurado — lead no creado")
         return None
@@ -220,6 +221,8 @@ async def crear_lead(nombre_cliente: str, telefono: str, descripcion: str,
             }
             if company_id:
                 vals["company_id"] = company_id
+            if partner_id:
+                vals["partner_id"] = partner_id
 
             lead_id = await _execute_kw(client, uid, "crm.lead", "create", [vals])
             log.info("Lead creado en Odoo CRM: id=%s canal=%s destino=%s", lead_id, canal, destino)

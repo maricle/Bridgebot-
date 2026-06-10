@@ -193,20 +193,22 @@ async def _intentar_crear_lead(user_id: str, canal: str, historial: list,
     destino         = datos.get("destino") or "oficina"
     requiere_diseno = datos.get("requiere_diseno", False)
     archivos        = await obtener_archivos(canonical_id)
+
+    # Buscar partner Odoo por teléfono para vincular al lead y actualizar email
+    odoo_match    = await buscar_cliente_odoo_por_telefono(telefono or canonical_id)
+    partner_odoo  = int(odoo_match["odoo_id"]) if odoo_match and odoo_match.get("odoo_id") else None
+
     from odoo_crm import crear_lead, actualizar_partner
     odoo_id = await crear_lead(
         nombre, telefono, descripcion, canal, user_id,
         historial=historial, archivos=archivos, destino=destino, email=email,
-        requiere_diseno=requiere_diseno,
+        requiere_diseno=requiere_diseno, partner_id=partner_odoo,
     ) or 0
     await guardar_lead(canonical_id, descripcion, canal, odoo_id)
     await guardar_datos_cliente(canonical_id, nombre=nombre, telefono=telefono, email=email)
 
-    # Actualizar email del partner en Odoo si lo tenemos
-    if email:
-        odoo_match = await buscar_cliente_odoo_por_telefono(telefono or canonical_id)
-        if odoo_match and odoo_match.get("odoo_id"):
-            await actualizar_partner(int(odoo_match["odoo_id"]), email=email)
+    if email and partner_odoo:
+        await actualizar_partner(partner_odoo, email=email)
 
     log.info("Lead creado en Odoo — canonical=%s odoo_id=%s", canonical_id, odoo_id)
 
