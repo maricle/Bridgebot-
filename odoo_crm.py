@@ -4,7 +4,8 @@ import logging
 import httpx
 
 from config import (ODOO_API_KEY, ODOO_DB, ODOO_DESTINO_CARTELERIA,
-                    ODOO_DESTINO_OFICINA, ODOO_LOGIN, ODOO_URL)
+                    ODOO_DESTINO_OFICINA, ODOO_LOGIN, ODOO_NOTIFICAR_USUARIOS,
+                    ODOO_URL)
 
 log = logging.getLogger(__name__)
 
@@ -218,8 +219,41 @@ async def crear_lead(nombre_cliente: str, telefono: str, descripcion: str,
                 vals["company_id"] = company_id
 
             lead_id = await _execute_kw(client, uid, "crm.lead", "create", [vals])
-
             log.info("Lead creado en Odoo CRM: id=%s canal=%s destino=%s", lead_id, canal, destino)
+
+            # Suscribir usuarios adicionales al lead
+            if ODOO_NOTIFICAR_USUARIOS:
+                try:
+                    partner_ids = await _execute_kw(
+                        client, uid, "res.users", "read",
+                        [ODOO_NOTIFICAR_USUARIOS], {"fields": ["partner_id"]},
+                    )
+                    pids = [p["partner_id"][0] for p in partner_ids if p.get("partner_id")]
+                    if pids:
+                        await _execute_kw(client, uid, "crm.lead", "message_subscribe",
+                                          [[lead_id]], {"partner_ids": pids})
+                except Exception as e:
+                    log.warning("No se pudieron suscribir usuarios adicionales: %s", e)
+
+            # Notificar al responsable y followers con un mensaje en el chatter
+            try:
+                canal_label = "WhatsApp" if canal == "whatsapp" else "Instagram"
+                await _execute_kw(
+                    client, uid, "crm.lead", "message_post", [[lead_id]],
+                    {
+                        "body": (
+                            f"<p>📩 Nuevo lead generado desde <b>{canal_label}</b> vía BridgeBot.</p>"
+                            f"<p><b>Cliente:</b> {nombre_cliente or 'Sin nombre'}<br/>"
+                            f"<b>Teléfono:</b> {telefono or 'No proporcionado'}<br/>"
+                            f"<b>Área:</b> {destino}</p>"
+                            f"<p>{descripcion}</p>"
+                        ),
+                        "message_type": "comment",
+                        "subtype_xmlid": "mail.mt_comment",
+                    },
+                )
+            except Exception as e:
+                log.warning("No se pudo publicar mensaje en chatter: %s", e)
 
             for arch in (archivos or []):
                 await _adjuntar_archivo(client, uid, lead_id, arch, canal)

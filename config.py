@@ -97,6 +97,12 @@ ODOO_LOGIN   = os.environ.get("ODOO_LOGIN", "")
 ODOO_DESTINO_CARTELERIA = os.environ.get("ODOO_DESTINO_CARTELERIA", "")
 ODOO_DESTINO_OFICINA    = os.environ.get("ODOO_DESTINO_OFICINA", "")
 
+# Usuarios adicionales a notificar al crear un lead (IDs separados por coma, ej. "3,7")
+ODOO_NOTIFICAR_USUARIOS = [
+    int(u.strip()) for u in os.environ.get("ODOO_NOTIFICAR_USUARIOS", "").split(",")
+    if u.strip().isdigit()
+]
+
 # ─── BASE DE DATOS ────────────────────────────────────────────────────────────
 TURSO_URL   = os.environ.get("TURSO_URL", "").replace("libsql://", "https://")
 TURSO_TOKEN = os.environ.get("TURSO_TOKEN", "")
