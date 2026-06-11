@@ -1,0 +1,272 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>BridgeBot Dashboard — Grupo Ideas</title>
+<script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
+<style>
+  :root {
+    --accent: #4f46e5;
+    --green:  #10b981;
+    --amber:  #f59e0b;
+    --bg:     #f1f5f9;
+    --card:   #ffffff;
+    --text:   #1e293b;
+    --muted:  #64748b;
+  }
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body { font-family: system-ui, -apple-system, sans-serif; background: var(--bg); color: var(--text); }
+
+  header {
+    background: var(--accent);
+    color: white;
+    padding: 1rem 2rem;
+    display: flex;
+    align-items: center;
+    flex-wrap: wrap;
+    gap: 1rem;
+  }
+  header h1 { font-size: 1.25rem; font-weight: 700; flex: 1; min-width: 200px; }
+
+  .filtro {
+    display: flex;
+    align-items: center;
+    gap: .5rem;
+    flex-wrap: wrap;
+  }
+  .filtro label { font-size: .85rem; opacity: .9; }
+  .filtro input[type=date] {
+    padding: .35rem .6rem;
+    border-radius: 6px;
+    border: none;
+    font-size: .9rem;
+    color: var(--text);
+  }
+  .filtro button {
+    background: white;
+    color: var(--accent);
+    border: none;
+    border-radius: 6px;
+    padding: .4rem 1.1rem;
+    font-weight: 700;
+    font-size: .9rem;
+    cursor: pointer;
+    transition: opacity .15s;
+  }
+  .filtro button:hover { opacity: .85; }
+
+  main { padding: 1.5rem 2rem; max-width: 1300px; margin: 0 auto; }
+
+  .cards {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+    gap: 1rem;
+    margin-bottom: 1.5rem;
+  }
+  .card {
+    background: var(--card);
+    border-radius: 12px;
+    padding: 1.2rem 1.4rem;
+    box-shadow: 0 1px 4px rgba(0,0,0,.07);
+    border-top: 4px solid var(--accent);
+  }
+  .card.green { border-top-color: var(--green); }
+  .card.amber { border-top-color: var(--amber); }
+  .card .label {
+    font-size: .72rem;
+    color: var(--muted);
+    text-transform: uppercase;
+    letter-spacing: .06em;
+    font-weight: 600;
+  }
+  .card .value {
+    font-size: 2.4rem;
+    font-weight: 800;
+    color: var(--accent);
+    line-height: 1.1;
+    margin-top: .3rem;
+  }
+  .card.green .value { color: var(--green); }
+  .card.amber  .value { color: var(--amber); }
+  .card .sub { font-size: .82rem; color: var(--muted); margin-top: .25rem; }
+
+  .charts {
+    display: grid;
+    grid-template-columns: 3fr 2fr;
+    gap: 1.5rem;
+  }
+  .chart-box {
+    background: var(--card);
+    border-radius: 12px;
+    padding: 1.3rem 1.5rem;
+    box-shadow: 0 1px 4px rgba(0,0,0,.07);
+  }
+  .chart-box h2 {
+    font-size: .95rem;
+    font-weight: 700;
+    color: var(--muted);
+    text-transform: uppercase;
+    letter-spacing: .05em;
+    margin-bottom: 1rem;
+  }
+
+  #estado {
+    font-size: .85rem;
+    color: var(--muted);
+    margin-bottom: 1rem;
+    min-height: 1.2rem;
+  }
+
+  @media (max-width: 800px) {
+    main { padding: 1rem; }
+    .charts { grid-template-columns: 1fr; }
+  }
+</style>
+</head>
+<body>
+
+<header>
+  <h1>BridgeBot &mdash; Grupo Ideas</h1>
+  <div class="filtro">
+    <label>Desde</label>
+    <input type="date" id="desde">
+    <label>Hasta</label>
+    <input type="date" id="hasta">
+    <button onclick="cargar()">Aplicar</button>
+  </div>
+</header>
+
+<main>
+  <p id="estado">Cargando...</p>
+
+  <div class="cards">
+    <div class="card">
+      <div class="label">Clientes atendidos</div>
+      <div class="value" id="c-total">—</div>
+      <div class="sub" id="c-periodo">en el período</div>
+    </div>
+    <div class="card green">
+      <div class="label">Consultaron precio</div>
+      <div class="value" id="c-pct">—</div>
+      <div class="sub" id="c-precio-n">— clientes</div>
+    </div>
+    <div class="card amber">
+      <div class="label">Leads generados</div>
+      <div class="value" id="c-leads">—</div>
+      <div class="sub" id="c-conv">conversión sobre atendidos</div>
+    </div>
+  </div>
+
+  <div class="charts">
+    <div class="chart-box">
+      <h2>Clientes por día</h2>
+      <canvas id="chartDia"></canvas>
+    </div>
+    <div class="chart-box">
+      <h2>Productos más consultados</h2>
+      <canvas id="chartProd"></canvas>
+    </div>
+  </div>
+</main>
+
+<script>
+let chartDia = null, chartProd = null;
+
+function hoy() {
+  return new Date().toISOString().split('T')[0];
+}
+function haceDias(n) {
+  const d = new Date();
+  d.setDate(d.getDate() - n);
+  return d.toISOString().split('T')[0];
+}
+
+async function cargar() {
+  const desde = document.getElementById('desde').value;
+  const hasta  = document.getElementById('hasta').value;
+  document.getElementById('estado').textContent = 'Cargando...';
+
+  try {
+    const res = await fetch(`/analytics?desde=${desde}&hasta=${hasta}`);
+    if (!res.ok) throw new Error(`HTTP ${res.status}`);
+    const d = await res.json();
+
+    document.getElementById('estado').textContent =
+      `Período: ${desde} → ${hasta}`;
+
+    // Cards
+    document.getElementById('c-total').textContent = d.total_clientes;
+    document.getElementById('c-pct').textContent   = d.precio.porcentaje + '%';
+    document.getElementById('c-precio-n').textContent = d.precio.cantidad + ' clientes';
+    document.getElementById('c-leads').textContent = d.total_leads;
+    const conv = d.total_clientes
+      ? Math.round(d.total_leads / d.total_clientes * 100) + '%'
+      : '—';
+    document.getElementById('c-conv').textContent = conv + ' de conversión';
+
+    // Chart: clientes por día
+    const dias    = d.clientes_por_dia.map(x => x.dia);
+    const totales = d.clientes_por_dia.map(x => x.total);
+    if (chartDia) chartDia.destroy();
+    chartDia = new Chart(document.getElementById('chartDia'), {
+      type: 'bar',
+      data: {
+        labels: dias,
+        datasets: [{
+          label: 'Clientes',
+          data: totales,
+          backgroundColor: 'rgba(79,70,229,.25)',
+          borderColor: '#4f46e5',
+          borderWidth: 2,
+          borderRadius: 5,
+        }]
+      },
+      options: {
+        responsive: true,
+        plugins: { legend: { display: false } },
+        scales: {
+          y: { beginAtZero: true, ticks: { stepSize: 1, precision: 0 } },
+          x: { ticks: { maxRotation: 45 } }
+        }
+      }
+    });
+
+    // Chart: productos (horizontal bar)
+    const prods = d.productos.slice(0, 12);
+    if (chartProd) chartProd.destroy();
+    chartProd = new Chart(document.getElementById('chartProd'), {
+      type: 'bar',
+      data: {
+        labels: prods.map(x => x.producto),
+        datasets: [{
+          label: 'Clientes',
+          data: prods.map(x => x.clientes),
+          backgroundColor: 'rgba(16,185,129,.25)',
+          borderColor: '#10b981',
+          borderWidth: 2,
+          borderRadius: 5,
+        }]
+      },
+      options: {
+        indexAxis: 'y',
+        responsive: true,
+        plugins: { legend: { display: false } },
+        scales: {
+          x: { beginAtZero: true, ticks: { stepSize: 1, precision: 0 } }
+        }
+      }
+    });
+
+  } catch (e) {
+    document.getElementById('estado').textContent = 'Error cargando datos: ' + e.message;
+  }
+}
+
+// Default: últimos 30 días
+document.getElementById('desde').value = haceDias(30);
+document.getElementById('hasta').value  = hoy();
+cargar();
+</script>
+</body>
+</html>

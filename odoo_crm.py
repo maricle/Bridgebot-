@@ -62,15 +62,16 @@ async def _execute_kw(client: httpx.AsyncClient, uid: int, model: str,
     return data["result"]
 
 
-def _transcripcion_texto(historial: list) -> str:
+def _transcripcion_html(historial: list) -> str:
     if not historial:
         return ""
-    sep = "\n" + "─" * 40 + "\n"
-    lineas = ["\n\nTRANSCRIPCIÓN DEL CHAT\n" + "─" * 40]
+    import html as _html
+    partes = ["<hr/><p><b>TRANSCRIPCIÓN DEL CHAT</b></p>"]
     for m in historial:
-        label = "Cliente" if m["role"] == "user" else "Bot"
-        lineas.append(f"{label}: {m['content']}")
-    return sep.join(lineas)
+        label = "<b>Cliente:</b>" if m["role"] == "user" else "<b>VictorIA:</b>"
+        texto = _html.escape(m["content"]).replace("\n", "<br/>")
+        partes.append(f"<p>{label} {texto}</p>")
+    return "".join(partes)
 
 
 
@@ -196,13 +197,13 @@ async def crear_lead(nombre_cliente: str, telefono: str, descripcion: str,
 
     company_id, responsable_id = _resolver_destino(destino)
 
+    import html as _html
     titulo = f"[{canal.upper()}][{destino.upper()}] {nombre_cliente or 'Cliente sin nombre'}"
     cuerpo = (
-        f"Canal: {canal}\n"
-        f"Área: {destino}\n"
-        f"Teléfono: {telefono or 'No proporcionado'}\n\n"
-        f"{descripcion}"
-        + _transcripcion_texto(historial or [])
+        f"<p><b>Canal:</b> {canal} &nbsp;|&nbsp; <b>Área:</b> {destino}</p>"
+        f"<p><b>Teléfono:</b> {_html.escape(telefono or 'No proporcionado')}</p>"
+        f"<p>{_html.escape(descripcion)}</p>"
+        + _transcripcion_html(historial or [])
     )
 
     try:

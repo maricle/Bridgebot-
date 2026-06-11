@@ -9,16 +9,16 @@ from contextlib import asynccontextmanager
 
 import httpx
 from fastapi import FastAPI, HTTPException, Request, Response
-from fastapi.responses import PlainTextResponse
+from fastapi.responses import HTMLResponse, PlainTextResponse
 
 import instagram
 import whatsapp
 from config import AUTO_RESPUESTA, EXCLUIR_BOT, IG_ACCOUNT_ID, SALUDO, VERIFY_TOKEN
 from db import (buscar_cliente_odoo_por_telefono, conversacion_cerrada,
                 es_usuario_nuevo, guardar_archivo, guardar_datos_cliente,
-                init_db, marcar_saludado, obtener_canonical_id, obtener_conversacion,
-                obtener_datos_cliente, obtener_leads, obtener_usuarios,
-                resetear_cerrada, resetear_usuario, stats)
+                init_db, limpiar_historial, marcar_saludado, obtener_canonical_id,
+                obtener_conversacion, obtener_datos_cliente, obtener_leads,
+                obtener_usuarios, resetear_cerrada, resetear_usuario, stats)
 from ai import generar_respuesta
 
 logging.basicConfig(level=logging.INFO, format="%(levelname)s: %(message)s")
@@ -126,6 +126,7 @@ async def procesar_instagram(data: dict):
         if await conversacion_cerrada(sender_id):
             await resetear_cerrada(sender_id)
             canonical = await obtener_canonical_id(sender_id)
+            await limpiar_historial(canonical)
             datos     = await obtener_datos_cliente(canonical)
             nombre    = (datos.get("nombre") or "").split()[0]
             saludo_r  = f"¡Hola {nombre}! ¿Te ayudo con tu pedido de hoy?" if nombre else SALUDO
@@ -142,11 +143,10 @@ async def procesar_instagram(data: dict):
                     await marcar_saludado(sender_id, "instagram")
                 return
 
-            nuevo     = await es_usuario_nuevo(sender_id)
+            nuevo = await es_usuario_nuevo(sender_id)
             if nuevo:
                 await marcar_saludado(sender_id, "instagram")
-                await instagram.enviar_mensaje(client, sender_id, SALUDO)
-            respuesta = await generar_respuesta(sender_id, mensaje, "instagram")
+            respuesta = await generar_respuesta(sender_id, mensaje, "instagram", es_nuevo=nuevo)
             await instagram.enviar_mensaje(client, sender_id, respuesta)
 
     except Exception as e:
@@ -198,6 +198,7 @@ async def procesar_whatsapp(data: dict):
         if await conversacion_cerrada(sender_id):
             await resetear_cerrada(sender_id)
             canonical = await obtener_canonical_id(sender_id)
+            await limpiar_historial(canonical)
             datos     = await obtener_datos_cliente(canonical)
             nombre    = (datos.get("nombre") or "").split()[0]
             saludo_r  = f"¡Hola {nombre}! ¿Te ayudo con tu pedido de hoy?" if nombre else SALUDO
@@ -213,15 +214,10 @@ async def procesar_whatsapp(data: dict):
                 await marcar_saludado(sender_id, "whatsapp")
                 odoo_match = await buscar_cliente_odoo_por_telefono(sender_id)
                 if odoo_match and odoo_match.get("nombre"):
-                    nombre_corto = odoo_match["nombre"].split()[0]
-                    saludo_p = f"¡Hola {nombre_corto}! ¿En qué te puedo ayudar hoy?"
                     await guardar_datos_cliente(sender_id, nombre=odoo_match["nombre"],
                                                 email=odoo_match.get("email") or "")
-                    await whatsapp.enviar_mensaje(client, sender_id, saludo_p)
-                    log.info("WA: saludo personalizado para %s (%s)", sender_id, odoo_match["nombre"])
-                else:
-                    await whatsapp.enviar_mensaje(client, sender_id, SALUDO)
-            respuesta = await generar_respuesta(sender_id, mensaje, "whatsapp")
+                    log.info("WA: cliente Odoo identificado para %s (%s)", sender_id, odoo_match["nombre"])
+            respuesta = await generar_respuesta(sender_id, mensaje, "whatsapp", es_nuevo=nuevo)
             await whatsapp.enviar_mensaje(client, sender_id, respuesta)
 
     except Exception as e:
@@ -309,6 +305,25 @@ async def health():
         "whatsapp": {"ok": wa_ok, "numero": wa_numero},
         **(await stats()),
     }
+
+
+@app.get("/dashboard")
+async def dashboard():
+    import os
+    html_path = os.path.join(os.path.dirname(__file__), "static", "dashboard.html")
+    with open(html_path, encoding="utf-8") as f:
+        return HTMLResponse(f.read())
+
+
+@app.get("/analytics")
+async def analytics(desde: str = "", hasta: str = ""):
+    from datetime import date, timedelta
+    from analytics import obtener_analytics
+    if not hasta:
+        hasta = date.today().isoformat()
+    if not desde:
+        desde = (date.today() - timedelta(days=30)).isoformat()
+    return await obtener_analytics(desde, hasta)
 
 
 @app.get("/leads")

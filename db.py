@@ -272,6 +272,10 @@ async def resetear_cerrada(user_id: str):
     await _run("UPDATE usuarios SET cerrada = 0 WHERE ig_user_id = ?", (user_id,))
 
 
+async def limpiar_historial(user_id: str):
+    await _run("DELETE FROM historial WHERE ig_user_id = ?", (user_id,))
+
+
 async def obtener_canonical_id(user_id: str) -> str:
     """Devuelve el canonical_id si el usuario está vinculado, sino el mismo user_id."""
     rows = await _query(

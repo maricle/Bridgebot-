@@ -213,7 +213,8 @@ async def _intentar_crear_lead(user_id: str, canal: str, historial: list,
     log.info("Lead creado en Odoo — canonical=%s odoo_id=%s", canonical_id, odoo_id)
 
 
-async def generar_respuesta(user_id: str, mensaje: str, canal: str = "instagram") -> str:
+async def generar_respuesta(user_id: str, mensaje: str, canal: str = "instagram",
+                            es_nuevo: bool = False) -> str:
     if not ANTHROPIC_API_KEY:
         return "El servicio de IA no está configurado. Te contactamos a la brevedad."
 
@@ -237,6 +238,12 @@ async def generar_respuesta(user_id: str, mensaje: str, canal: str = "instagram"
     con_precios = _pide_precio(mensaje)
     flujo       = _detectar_flujo(mensaje)
     system      = get_system_prompt(con_precios=con_precios, canal=canal, flujo=flujo)
+
+    if es_nuevo:
+        if datos_cliente.get("nombre"):
+            system += f"\n\nEs el primer mensaje de este cliente — saludalo por su nombre ({datos_cliente['nombre'].split()[0]}), presentate como VictorIA y respondé su consulta en el mismo mensaje."
+        else:
+            system += "\n\nEs el primer mensaje de este cliente — saludalo cálidamente, presentate como VictorIA y respondé su consulta en el mismo mensaje."
 
     tiene_datos = datos_cliente.get("nombre") or datos_cliente.get("telefono")
     if tiene_datos:
