@@ -241,9 +241,9 @@ async def generar_respuesta(user_id: str, mensaje: str, canal: str = "instagram"
 
     if es_nuevo:
         if datos_cliente.get("nombre"):
-            system += f"\n\nEs el primer mensaje de este cliente — saludalo por su nombre ({datos_cliente['nombre'].split()[0]}), presentate como VictorIA y respondé su consulta en el mismo mensaje."
+            system += f"\n\nEs el primer mensaje de este cliente — saludalo por su nombre ({datos_cliente['nombre'].split()[0]}), presentate y respondé su consulta en el mismo mensaje."
         else:
-            system += "\n\nEs el primer mensaje de este cliente — saludalo cálidamente, presentate como VictorIA y respondé su consulta en el mismo mensaje."
+            system += "\n\nEs el primer mensaje de este cliente — saludalo cálidamente, presentate y respondé su consulta en el mismo mensaje."
 
     tiene_datos = datos_cliente.get("nombre") or datos_cliente.get("telefono")
     if tiene_datos:
