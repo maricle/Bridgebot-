@@ -361,6 +361,10 @@
 
   <!-- ── ARCHIVOS ── -->
   <div class="tab-panel" id="panel-archivos">
+    <div class="search-bar" style="margin-bottom:1rem">
+      <input type="tel" id="filtro-tel-archivos" placeholder="Filtrar por teléfono..."
+             oninput="filtrarArchivos()">
+    </div>
     <p class="estado" id="estado-archivos">Cargando archivos...</p>
     <div class="tabla-wrap">
       <table>
@@ -512,49 +516,67 @@ function escHtml(s) {
 }
 
 // ── ARCHIVOS ──────────────────────────────────────────────────────────────────
+let _archivosData = [];
+
 async function cargarArchivos() {
   const estado = document.getElementById('estado-archivos');
-  const tbody  = document.getElementById('tabla-archivos');
   estado.textContent = 'Cargando archivos...';
   try {
     const res = await fetch('/archivos');
-    const data = await res.json();
-    if (!data.length) {
-      tbody.innerHTML = '<tr><td colspan="6" class="empty">No hay archivos recibidos.</td></tr>';
-      estado.textContent = '';
-      return;
-    }
-    estado.textContent = `${data.length} archivo(s) recibido(s).`;
-    tbody.innerHTML = data.map(a => {
-      const canal   = a.canal === 'whatsapp'  ? '<span class="badge wa">WA</span>'
-                    : a.canal === 'instagram' ? '<span class="badge ig">IG</span>'
-                    : a.canal;
-      const tipoBadge = /image|foto|imagen/.test(a.tipo)
-                    ? `<span class="badge img">${a.tipo}</span>`
-                    : /audio/.test(a.tipo)
-                    ? `<span class="badge audio">${a.tipo}</span>`
-                    : `<span class="badge doc">${a.tipo}</span>`;
-      const accion = a.url
-        ? `<a class="dl-btn" href="${escHtml(a.url)}" target="_blank" rel="noopener">Abrir</a>`
-        : a.media_id
-        ? `<span class="no-url" title="ID: ${a.media_id}">Sin URL directa</span>`
-        : `<span class="no-url">—</span>`;
-      const nombre = a.nombre || '—';
-      const telefono = a.telefono || a.ig_user_id;
-      const fecha = (a.creado_en || '').replace('T', ' ').substring(0, 16);
-      return `<tr>
-        <td>${fecha}</td>
-        <td>${canal}</td>
-        <td>${tipoBadge}</td>
-        <td>${escHtml(nombre)}</td>
-        <td style="font-size:.82rem;color:var(--muted)">${escHtml(telefono)}</td>
-        <td>${accion}</td>
-      </tr>`;
-    }).join('');
+    _archivosData = await res.json();
+    filtrarArchivos();
   } catch (e) {
     estado.textContent = 'Error: ' + e.message;
-    tbody.innerHTML = '<tr><td colspan="6" class="empty">Error cargando datos.</td></tr>';
+    document.getElementById('tabla-archivos').innerHTML =
+      '<tr><td colspan="6" class="empty">Error cargando datos.</td></tr>';
   }
+}
+
+function filtrarArchivos() {
+  const filtro = (document.getElementById('filtro-tel-archivos').value || '').trim();
+  const estado = document.getElementById('estado-archivos');
+  const tbody  = document.getElementById('tabla-archivos');
+
+  const datos = filtro
+    ? _archivosData.filter(a => {
+        const tel = (a.telefono || a.ig_user_id || '');
+        return tel.includes(filtro);
+      })
+    : _archivosData;
+
+  if (!datos.length) {
+    tbody.innerHTML = `<tr><td colspan="6" class="empty">${
+      filtro ? 'Sin archivos para ese teléfono.' : 'No hay archivos recibidos.'
+    }</td></tr>`;
+    estado.textContent = filtro ? `0 resultados para "${filtro}"` : '';
+    return;
+  }
+
+  estado.textContent = `${datos.length} archivo(s)${filtro ? ` para "${filtro}"` : ''}.`;
+  tbody.innerHTML = datos.map(a => {
+    const canal = a.canal === 'whatsapp'  ? '<span class="badge wa">WA</span>'
+                : a.canal === 'instagram' ? '<span class="badge ig">IG</span>'
+                : a.canal;
+    const tipoBadge = /image|foto|imagen/.test(a.tipo)
+                  ? `<span class="badge img">${a.tipo}</span>`
+                  : /audio/.test(a.tipo)
+                  ? `<span class="badge audio">${a.tipo}</span>`
+                  : `<span class="badge doc">${a.tipo}</span>`;
+    const accion = (a.media_id || a.url)
+      ? `<a class="dl-btn" href="/archivos/${a.id}/descargar">Descargar</a>`
+      : `<span class="no-url">—</span>`;
+    const nombre   = escHtml(a.nombre || '—');
+    const telefono = escHtml(a.telefono || a.ig_user_id || '—');
+    const fecha    = (a.creado_en || '').replace('T', ' ').substring(0, 16);
+    return `<tr>
+      <td>${fecha}</td>
+      <td>${canal}</td>
+      <td>${tipoBadge}</td>
+      <td>${nombre}</td>
+      <td style="font-size:.82rem;color:var(--muted)">${telefono}</td>
+      <td>${accion}</td>
+    </tr>`;
+  }).join('');
 }
 
 // ── INIT ──────────────────────────────────────────────────────────────────────

@@ -17,9 +17,9 @@ from config import AUTO_RESPUESTA, EXCLUIR_BOT, IG_ACCOUNT_ID, SALUDO, VERIFY_TO
 from db import (buscar_cliente_odoo_por_telefono, buscar_usuario_por_telefono,
                 conversacion_cerrada, es_usuario_nuevo, guardar_archivo,
                 guardar_datos_cliente, init_db, listar_archivos, limpiar_historial,
-                marcar_saludado, obtener_canonical_id, obtener_conversacion,
-                obtener_datos_cliente, obtener_leads, obtener_usuarios,
-                resetear_cerrada, resetear_usuario, stats)
+                marcar_saludado, obtener_archivo_por_id, obtener_canonical_id,
+                obtener_conversacion, obtener_datos_cliente, obtener_leads,
+                obtener_usuarios, resetear_cerrada, resetear_usuario, stats)
 from ai import generar_respuesta
 
 logging.basicConfig(level=logging.INFO, format="%(levelname)s: %(message)s")
@@ -357,6 +357,49 @@ async def buscar_por_telefono(telefono: str):
 @app.get("/archivos")
 async def ver_archivos():
     return await listar_archivos()
+
+
+@app.get("/archivos/{archivo_id}/descargar")
+async def descargar_archivo(archivo_id: int):
+    from fastapi.responses import StreamingResponse
+    from config import WA_ACCESS_TOKEN
+    archivo = await obtener_archivo_por_id(archivo_id)
+    if not archivo:
+        raise HTTPException(status_code=404, detail="Archivo no encontrado")
+
+    media_id = archivo.get("media_id", "")
+    url_directa = archivo.get("url", "")
+
+    headers_meta = {"Authorization": f"Bearer {WA_ACCESS_TOKEN}"}
+
+    async with httpx.AsyncClient() as client:
+        # WA: refrescar URL via media_id
+        if media_id and not url_directa:
+            info = await client.get(
+                f"https://graph.facebook.com/v19.0/{media_id}",
+                headers=headers_meta, timeout=10,
+            )
+            if info.status_code != 200:
+                raise HTTPException(status_code=502, detail="No se pudo obtener la URL del archivo de Meta")
+            url_directa = info.json().get("url", "")
+
+        if not url_directa:
+            raise HTTPException(status_code=404, detail="Sin URL disponible para este archivo")
+
+        resp = await client.get(url_directa, headers=headers_meta, timeout=30)
+        if resp.status_code != 200:
+            raise HTTPException(status_code=502, detail="Error descargando el archivo de Meta")
+
+        content_type = resp.headers.get("content-type", "application/octet-stream")
+        tipo = archivo.get("tipo", "archivo")
+        ext = content_type.split("/")[-1].split(";")[0]
+        filename = f"{tipo}_{archivo_id}.{ext}"
+
+        return StreamingResponse(
+            iter([resp.content]),
+            media_type=content_type,
+            headers={"Content-Disposition": f'attachment; filename="{filename}"'},
+        )
 
 
 @app.delete("/usuario/{user_id}")

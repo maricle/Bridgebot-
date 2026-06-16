@@ -376,6 +376,18 @@ async def obtener_archivos(user_id: str) -> list[dict]:
     )
 
 
+async def obtener_archivo_por_id(archivo_id: int) -> dict | None:
+    rows = await _query(
+        """SELECT a.id, a.ig_user_id, a.canal, a.tipo, a.media_id, a.url, a.creado_en,
+                  u.nombre, u.telefono
+           FROM archivos a
+           LEFT JOIN usuarios u ON u.ig_user_id = a.ig_user_id
+           WHERE a.id = ?""",
+        (archivo_id,),
+    )
+    return rows[0] if rows else None
+
+
 async def listar_archivos(limite: int = 200) -> list[dict]:
     return await _query(
         """SELECT a.id, a.ig_user_id, a.canal, a.tipo, a.media_id, a.url, a.creado_en,
