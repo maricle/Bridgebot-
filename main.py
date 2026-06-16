@@ -14,11 +14,12 @@ from fastapi.responses import HTMLResponse, PlainTextResponse
 import instagram
 import whatsapp
 from config import AUTO_RESPUESTA, EXCLUIR_BOT, IG_ACCOUNT_ID, SALUDO, VERIFY_TOKEN
-from db import (buscar_cliente_odoo_por_telefono, conversacion_cerrada,
-                es_usuario_nuevo, guardar_archivo, guardar_datos_cliente,
-                init_db, limpiar_historial, marcar_saludado, obtener_canonical_id,
-                obtener_conversacion, obtener_datos_cliente, obtener_leads,
-                obtener_usuarios, resetear_cerrada, resetear_usuario, stats)
+from db import (buscar_cliente_odoo_por_telefono, buscar_usuario_por_telefono,
+                conversacion_cerrada, es_usuario_nuevo, guardar_archivo,
+                guardar_datos_cliente, init_db, listar_archivos, limpiar_historial,
+                marcar_saludado, obtener_canonical_id, obtener_conversacion,
+                obtener_datos_cliente, obtener_leads, obtener_usuarios,
+                resetear_cerrada, resetear_usuario, stats)
 from ai import generar_respuesta
 
 logging.basicConfig(level=logging.INFO, format="%(levelname)s: %(message)s")
@@ -338,7 +339,24 @@ async def ver_usuarios():
 
 @app.get("/conversacion/{user_id}")
 async def ver_conversacion(user_id: str):
-    return await obtener_conversacion(user_id)
+    datos = await obtener_datos_cliente(user_id)
+    historial = await obtener_conversacion(user_id)
+    return {"user_id": user_id, "cliente": datos, "historial": historial}
+
+
+@app.get("/buscar")
+async def buscar_por_telefono(telefono: str):
+    user_id = await buscar_usuario_por_telefono(telefono)
+    if not user_id:
+        return {"encontrado": False, "user_id": None, "cliente": {}, "historial": []}
+    datos = await obtener_datos_cliente(user_id)
+    historial = await obtener_conversacion(user_id)
+    return {"encontrado": True, "user_id": user_id, "cliente": datos, "historial": historial}
+
+
+@app.get("/archivos")
+async def ver_archivos():
+    return await listar_archivos()
 
 
 @app.delete("/usuario/{user_id}")

@@ -376,6 +376,17 @@ async def obtener_archivos(user_id: str) -> list[dict]:
     )
 
 
+async def listar_archivos(limite: int = 200) -> list[dict]:
+    return await _query(
+        """SELECT a.id, a.ig_user_id, a.canal, a.tipo, a.media_id, a.url, a.creado_en,
+                  u.nombre, u.telefono
+           FROM archivos a
+           LEFT JOIN usuarios u ON u.ig_user_id = a.ig_user_id
+           ORDER BY a.id DESC LIMIT ?""",
+        (limite,),
+    )
+
+
 async def resetear_usuario(user_id: str):
     await _run("DELETE FROM usuarios WHERE ig_user_id = ?", (user_id,))
     await _run("DELETE FROM historial WHERE ig_user_id = ?", (user_id,))
