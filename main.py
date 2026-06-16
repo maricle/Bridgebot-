@@ -16,10 +16,11 @@ import whatsapp
 from config import AUTO_RESPUESTA, EXCLUIR_BOT, IG_ACCOUNT_ID, SALUDO, VERIFY_TOKEN
 from db import (buscar_cliente_odoo_por_telefono, buscar_usuario_por_telefono,
                 conversacion_cerrada, es_usuario_nuevo, guardar_archivo,
-                guardar_datos_cliente, init_db, listar_archivos, limpiar_historial,
-                marcar_saludado, obtener_archivo_por_id, obtener_canonical_id,
-                obtener_conversacion, obtener_datos_cliente, obtener_leads,
-                obtener_usuarios, resetear_cerrada, resetear_usuario, stats)
+                guardar_datos_cliente, guardar_mensaje, init_db, listar_archivos,
+                limpiar_historial, marcar_saludado, obtener_archivo_por_id,
+                obtener_canonical_id, obtener_conversacion, obtener_datos_cliente,
+                obtener_leads, obtener_usuarios, resetear_cerrada, resetear_usuario,
+                stats)
 from ai import generar_respuesta
 
 logging.basicConfig(level=logging.INFO, format="%(levelname)s: %(message)s")
@@ -352,6 +353,22 @@ async def buscar_por_telefono(telefono: str):
     datos = await obtener_datos_cliente(user_id)
     historial = await obtener_conversacion(user_id)
     return {"encontrado": True, "user_id": user_id, "cliente": datos, "historial": historial}
+
+
+@app.post("/responder")
+async def responder_whatsapp(request: Request):
+    body = await request.json()
+    user_id = body.get("user_id", "").strip()
+    mensaje = body.get("mensaje", "").strip()
+    if not user_id or not mensaje:
+        raise HTTPException(status_code=400, detail="user_id y mensaje son requeridos")
+    async with httpx.AsyncClient() as client:
+        ok = await whatsapp.enviar_mensaje(client, user_id, mensaje)
+    if not ok:
+        raise HTTPException(status_code=502, detail="Error enviando mensaje por WhatsApp")
+    canonical = await obtener_canonical_id(user_id)
+    await guardar_mensaje(canonical, "assistant", mensaje)
+    return {"ok": True}
 
 
 @app.get("/archivos")

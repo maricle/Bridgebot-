@@ -289,6 +289,42 @@
   }
   .empty { color: var(--muted); text-align: center; padding: 2.5rem; }
 
+  .reply-box {
+    display: flex;
+    gap: .75rem;
+    margin-top: 1rem;
+    align-items: flex-end;
+  }
+  .reply-box textarea {
+    flex: 1;
+    padding: .65rem 1rem;
+    border-radius: 8px;
+    border: 1.5px solid var(--border);
+    font-size: .95rem;
+    font-family: inherit;
+    color: var(--text);
+    resize: none;
+    min-height: 48px;
+    max-height: 140px;
+    outline: none;
+    transition: border-color .15s;
+  }
+  .reply-box textarea:focus { border-color: var(--accent); }
+  .reply-box .btn-send {
+    background: var(--accent);
+    color: white;
+    border: none;
+    border-radius: 8px;
+    padding: .6rem 1.4rem;
+    font-weight: 700;
+    font-size: .95rem;
+    cursor: pointer;
+    white-space: nowrap;
+    height: 48px;
+  }
+  .reply-box .btn-send:disabled { opacity: .5; cursor: default; }
+  .reply-box .btn-send:not(:disabled):hover { opacity: .88; }
+
   @media (max-width: 800px) {
     main { padding: 1rem; }
     .charts { grid-template-columns: 1fr; }
@@ -357,6 +393,12 @@
     </div>
     <p class="estado" id="estado-historial"></p>
     <div id="resultado-historial"></div>
+    <div class="reply-box" id="reply-box" style="display:none">
+      <textarea id="reply-texto" placeholder="Escribir respuesta por WhatsApp..."
+                rows="1" oninput="autoResize(this)"
+                onkeydown="if(event.key==='Enter'&&!event.shiftKey){event.preventDefault();enviarRespuesta()}"></textarea>
+      <button class="btn-send" id="btn-send" onclick="enviarRespuesta()">Enviar</button>
+    </div>
   </div>
 
   <!-- ── ARCHIVOS ── -->
@@ -475,7 +517,9 @@ async function buscarHistorial() {
       return;
     }
     estado.textContent = '';
+    _currentUserId = d.user_id;
     const c = d.cliente;
+    const esWA = (c.canal === 'whatsapp') || (!c.canal && /^\d{10,15}$/.test(d.user_id));
     result.innerHTML = `
       <div class="cliente-info">
         <div class="ci-item">
@@ -491,8 +535,8 @@ async function buscarHistorial() {
           <div class="ci-val">${c.email || '—'}</div>
         </div>
         <div class="ci-item">
-          <div class="ci-label">ID</div>
-          <div class="ci-val" style="font-size:.8rem;color:var(--muted)">${d.user_id}</div>
+          <div class="ci-label">Canal</div>
+          <div class="ci-val">${c.canal || '—'}</div>
         </div>
       </div>
       <div class="conversacion" id="conv-box">
@@ -506,6 +550,8 @@ async function buscarHistorial() {
       </div>`;
     const box = document.getElementById('conv-box');
     if (box) box.scrollTop = box.scrollHeight;
+    document.getElementById('reply-box').style.display = esWA ? 'flex' : 'none';
+    document.getElementById('reply-texto').value = '';
   } catch (e) {
     estado.textContent = 'Error: ' + e.message;
   }
@@ -513,6 +559,49 @@ async function buscarHistorial() {
 
 function escHtml(s) {
   return s.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
+}
+
+function autoResize(el) {
+  el.style.height = 'auto';
+  el.style.height = Math.min(el.scrollHeight, 140) + 'px';
+}
+
+let _currentUserId = null;
+
+async function enviarRespuesta() {
+  const texto = document.getElementById('reply-texto').value.trim();
+  if (!texto || !_currentUserId) return;
+  const btn = document.getElementById('btn-send');
+  btn.disabled = true;
+  btn.textContent = 'Enviando...';
+  try {
+    const res = await fetch('/responder', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ user_id: _currentUserId, mensaje: texto }),
+    });
+    if (!res.ok) {
+      const err = await res.json();
+      alert('Error: ' + (err.detail || res.status));
+      return;
+    }
+    // Agregar el mensaje a la conversación visualmente
+    const box = document.getElementById('conv-box');
+    if (box) {
+      const div = document.createElement('div');
+      div.className = 'msg assistant';
+      div.innerHTML = escHtml(texto) + '<div class="msg-meta">ahora</div>';
+      box.appendChild(div);
+      box.scrollTop = box.scrollHeight;
+    }
+    document.getElementById('reply-texto').value = '';
+    document.getElementById('reply-texto').style.height = 'auto';
+  } catch (e) {
+    alert('Error: ' + e.message);
+  } finally {
+    btn.disabled = false;
+    btn.textContent = 'Enviar';
+  }
 }
 
 // ── ARCHIVOS ──────────────────────────────────────────────────────────────────
