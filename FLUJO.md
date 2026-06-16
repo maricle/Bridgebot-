@@ -28,6 +28,13 @@ BridgeBot recibe mensajes de WhatsApp e Instagram via webhooks de Meta, los proc
 | `/health` | GET | Estado de la app + chequeo del token de WhatsApp |
 | `/test-claude` | GET | Verifica conectividad con Claude AI |
 | `/test-odoo` | GET | Verifica conectividad con Odoo CRM |
+| `/actualizar-precios` | GET | Fuerza recarga de precios desde la fuente configurada |
+| `/dashboard` | GET | Dashboard HTML de conversaciones |
+| `/analytics` | GET | Métricas: mensajes, leads, usuarios activos |
+| `/leads` | GET | Lista de leads capturados |
+| `/usuarios` | GET | Lista de usuarios que escribieron |
+| `/conversacion/{id}` | GET | Historial de conversación de un usuario |
+| `/usuario/{id}` | DELETE | Resetea un usuario (borra historial y saludo) |
 
 ---
 
@@ -53,6 +60,9 @@ Mensaje entra
     ↓
 ¿Texto vacío o usuario en EXCLUIR_BOT?
     → Ignorar → FIN
+    ↓
+¿MODO_DEV activo?
+    → Procesa normalmente pero NO envía WA real ni crea leads en Odoo
     ↓
 ¿Conversación cerrada (cerrada=1)?
     → Resetear cerrada + enviar saludo de retorno "¡Hola [nombre]! ¿Te ayudo con tu pedido de hoy?"
@@ -86,13 +96,13 @@ Mismo flujo que WhatsApp con estas diferencias:
 3. Cargar datos del cliente (nombre, teléfono, email)
 4. Si WA y no hay nombre → buscar en clientes Odoo sync por teléfono
 5. Construir system prompt:
-   - Instrucciones del agente (agente.txt)
-   - Información de la empresa (conocimiento.txt + reglas)
+   - Instrucciones del agente (agente.md)
+   - Información de la empresa (conocimiento.md + 01_reglas_comerciales.md)
    - Canal actual (WHATSAPP / INSTAGRAM)
    - Flujo específico si detecta keywords (cartelería / gráfica)
    - Precios si el mensaje los pide (lazy-load)
+   - Link a WA_NUMERO_SOPORTE si está configurado
    - Datos conocidos del cliente (si existen)
-   - Instrucción: pedir email si no está registrado
 6. Llamar a Claude Haiku (con prompt caching)
 7. Guardar mensaje en historial
 8. Lanzar _intentar_crear_lead() en background
@@ -109,8 +119,8 @@ El system prompt se construye dinámicamente según el mensaje:
 | Condición | Se agrega al prompt |
 |---|---|
 | Keywords de precio (precio, cuánto, vale...) | Lista de precios completa |
-| Keywords de cartelería (lona, vinilo, banner...) | `02_flujo_carteleria.txt` |
-| Keywords de gráfica (impresión, DTF, talonario...) | `03_flujo_grafica_impresiones.txt` |
+| Keywords de cartelería (lona, vinilo, banner...) | `02_flujo_carteleria.md` |
+| Keywords de gráfica (impresión, DTF, talonario...) | `03_flujo_grafica_impresiones.md` |
 | Ambos tipos detectados | Ambos flujos |
 
 ---
@@ -125,11 +135,12 @@ Se ejecuta en background después de cada respuesta.
 3. Llamar a Claude con EXTRACCION_PROMPT para analizar la conversación
 4. Claude devuelve JSON: { tiene_lead, nombre, telefono, email, descripcion, destino }
 5. Si tiene_lead=false o ya hay lead activo (últimas 2hs) → no hacer nada
-6. Resolver destino (carteleria=company 4/user 8, oficina=company 5/user 10)
-7. crear_lead() en Odoo CRM con nombre, teléfono, email, descripción, transcripción
-8. Guardar lead en DB local
-9. Guardar/actualizar datos del cliente (nombre, teléfono, email)
-10. Si hay email → actualizar_partner() en Odoo (res.partner.email)
+6. Si MODO_DEV → loguear y no crear nada en Odoo
+7. Resolver destino (carteleria=company 4/user 8, oficina=company 5/user 10)
+8. crear_lead() en Odoo CRM con nombre, teléfono, email, descripción, transcripción HTML
+9. Guardar lead en DB local
+10. Guardar/actualizar datos del cliente (nombre, teléfono, email)
+11. Si hay email → actualizar_partner() en Odoo (res.partner.email)
 ```
 
 ---
@@ -139,7 +150,7 @@ Se ejecuta en background después de cada respuesta.
 **Cierre:**
 - Se activa cuando el bot envía una respuesta que contiene `"ya registré tu consulta"`
 - Se setea `cerrada=1` en la tabla `usuarios`
-- El bot deja de responder
+- El bot deja de responder hasta que el cliente vuelva a escribir
 
 **Retorno:**
 - Cliente escribe → `conversacion_cerrada()` devuelve True
@@ -191,21 +202,23 @@ El destino lo determina Claude al analizar la conversación en el `EXTRACCION_PR
 ### Clever CNC (`main` / `clever`)
 ```
 knowledge/
-├── agente.txt          # Instrucciones del bot (comportamiento)
-├── conocimiento.txt    # Info de la empresa Clever CNC
-└── precios.txt         # Lista de precios (puede estar vacío si se carga dinámicamente)
+├── agente.md          # Instrucciones del bot (comportamiento)
+├── conocimiento.md    # Info de la empresa Clever CNC
+└── precios.md         # Lista de precios
 ```
 
 ### Grupo Ideas (`grupo-ideas`)
 ```
 knowledge/
-├── agente.txt                      # VictorIA — instrucciones del bot
-├── conocimiento.txt                # Info de la empresa Grupo Ideas
-├── 01_reglas_comerciales.txt       # Reglas, condiciones, plazos (siempre cargado)
-├── 02_flujo_carteleria.txt         # Flujo + precios cartelería (lazy)
-├── 03_flujo_grafica_impresiones.txt # Flujo + precios gráfica (lazy)
-└── precios.txt                     # Vacío (precios embebidos en archivos de flujo)
+├── agente.md                       # VictorIA — instrucciones del bot
+├── conocimiento.md                 # Info de la empresa Grupo Ideas
+├── 01_reglas_comerciales.md        # Reglas, condiciones, plazos (siempre cargado)
+├── 02_flujo_carteleria.md          # Flujo + precios cartelería (lazy)
+├── 03_flujo_grafica_impresiones.md # Flujo + precios gráfica (lazy)
+└── precios.md                      # Vacío (precios embebidos en archivos de flujo)
 ```
+
+Los archivos de knowledge están marcados con `--skip-worktree` para mantener versiones locales por rama sin commitear cambios frecuentes de precios/flujo.
 
 ---
 
@@ -221,13 +234,15 @@ knowledge/
 | `WA_PHONE_ID` | ID del número de WhatsApp registrado |
 | `WA_NUMERO_SOPORTE` | Número para derivar seguimiento de pedidos (formato: 549XXXXXXXXX) |
 | `SALUDO_BIENVENIDA` | Mensaje de bienvenida para nuevos usuarios |
+| `AUTO_RESPUESTA` | Si `true`, solo envía el saludo sin Claude (modo pausa) |
+| `EXCLUIR_BOT` | User IDs separados por coma donde el bot no responde |
+| `MODO_DEV` | Si `true`, simula envíos WA y creación de leads (sin impacto real) |
 | `ODOO_URL` | URL de la instancia Odoo |
 | `ODOO_API_KEY` | API key de Odoo |
 | `ODOO_DB` | Nombre de la base de datos Odoo |
 | `ODOO_LOGIN` | Email del usuario Odoo |
 | `ODOO_DESTINO_CARTELERIA` | Routing cartelería: `company_id:user_id` |
 | `ODOO_DESTINO_OFICINA` | Routing oficina: `company_id:user_id` |
+| `ODOO_NOTIFICAR_USUARIOS` | IDs de usuarios Odoo a notificar al crear lead (ej: `3,7`) |
 | `TURSO_URL` | URL de la base de datos Turso |
 | `TURSO_TOKEN` | Token de autenticación Turso |
-| `AUTO_RESPUESTA` | Si `true`, solo envía el saludo sin Claude (modo pausa) |
-| `EXCLUIR_BOT` | Lista de user_ids separados por coma donde el bot no responde |
