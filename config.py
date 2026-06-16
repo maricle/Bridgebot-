@@ -27,10 +27,12 @@ ANTHROPIC_API_KEY = os.environ.get("ANTHROPIC_API_KEY", "")
 AUTO_RESPUESTA = os.environ.get("AUTO_RESPUESTA", "false").lower() == "true"
 EXCLUIR_BOT    = {u.strip() for u in os.environ.get("EXCLUIR_BOT", "").split(",") if u.strip()}
 
-SALUDO = os.environ.get(
-    "SALUDO_BIENVENIDA",
-    "¡Hola! Soy el asistente virtual de Clever CNC 👋 ¿En qué te puedo ayudar hoy?"
-)
+# ─── MODO DEV ─────────────────────────────────────────────────────────────────
+# Bloquea efectos externos reales (envío de WhatsApp y creación de leads en Odoo)
+# para poder probar el flujo de conversación sin impactar producción.
+MODO_DEV = os.environ.get("MODO_DEV", "false").lower() == "true"
+
+SALUDO = os.environ.get("SALUDO_BIENVENIDA", "¡Hola! 👋 ¿En qué te puedo ayudar hoy?")
 
 def _leer_archivo(nombre: str) -> str:
     base_dir = os.path.dirname(os.path.abspath(__file__))

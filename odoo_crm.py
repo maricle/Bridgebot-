@@ -3,7 +3,7 @@ import logging
 
 import httpx
 
-from config import (ODOO_API_KEY, ODOO_DB, ODOO_DESTINO_CARTELERIA,
+from config import (MODO_DEV, ODOO_API_KEY, ODOO_DB, ODOO_DESTINO_CARTELERIA,
                     ODOO_DESTINO_OFICINA, ODOO_LOGIN, ODOO_NOTIFICAR_USUARIOS,
                     ODOO_URL)
 
@@ -156,6 +156,10 @@ async def sincronizar_clientes() -> list[dict]:
 
 async def actualizar_partner(odoo_id: int, email: str = "") -> bool:
     """Actualiza email de un res.partner en Odoo."""
+    if MODO_DEV:
+        log.info("MODO_DEV activo — partner Odoo %s NO actualizado (simulado)", odoo_id)
+        return False
+
     if not odoo_id or not email or not ODOO_URL:
         return False
     try:
@@ -191,6 +195,10 @@ async def crear_lead(nombre_cliente: str, telefono: str, descripcion: str,
                      email: str = "",
                      requiere_diseno: bool = False,
                      partner_id: int | None = None) -> int | None:
+    if MODO_DEV:
+        log.info("MODO_DEV activo — lead NO creado en Odoo (simulado): %s / %s", nombre_cliente, telefono)
+        return None
+
     if not ODOO_URL or not ODOO_API_KEY or not ODOO_LOGIN:
         log.warning("Odoo CRM no configurado — lead no creado")
         return None

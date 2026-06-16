@@ -2,7 +2,7 @@ import logging
 
 import httpx
 
-from config import WA_ACCESS_TOKEN, WA_PHONE_ID
+from config import MODO_DEV, WA_ACCESS_TOKEN, WA_PHONE_ID
 
 log = logging.getLogger(__name__)
 
@@ -42,6 +42,10 @@ def extraer_archivos(data: dict) -> tuple[str, list[dict]]:
 
 
 async def enviar_mensaje(client: httpx.AsyncClient, recipient_id: str, texto: str) -> bool:
+    if MODO_DEV:
+        log.info("MODO_DEV activo — mensaje WA NO enviado (simulado) a %s: %s", recipient_id, texto[:80])
+        return True
+
     if not WA_ACCESS_TOKEN or not WA_PHONE_ID:
         log.error("WA_ACCESS_TOKEN o WA_PHONE_ID no configurados")
         return False
