@@ -13,7 +13,7 @@ from fastapi.responses import HTMLResponse, PlainTextResponse
 
 import instagram
 import whatsapp
-from config import AUTO_RESPUESTA, EXCLUIR_BOT, IG_ACCOUNT_ID, SALUDO, VERIFY_TOKEN
+from config import AUTO_RESPUESTA, BRIDGE_API_KEY, EXCLUIR_BOT, IG_ACCOUNT_ID, SALUDO, VERIFY_TOKEN
 from db import (buscar_cliente_odoo_por_telefono, buscar_en_historial,
                 buscar_usuario_por_telefono, conversacion_cerrada, es_usuario_nuevo,
                 guardar_archivo, guardar_datos_cliente, guardar_mensaje, init_db,
@@ -361,6 +361,37 @@ async def buscar_por_telefono(telefono: str):
     datos = await obtener_datos_cliente(user_id)
     historial = await obtener_conversacion(user_id)
     return {"encontrado": True, "user_id": user_id, "cliente": datos, "historial": historial}
+
+
+@app.post("/odoo/enviar")
+async def enviar_desde_odoo(request: Request):
+    """Recibe llamadas desde Odoo para enviar mensajes por WhatsApp."""
+    api_key = request.headers.get("X-Api-Key", "")
+    if not BRIDGE_API_KEY or api_key != BRIDGE_API_KEY:
+        raise HTTPException(status_code=401, detail="API key inválida")
+
+    body = await request.json()
+    telefono  = "".join(c for c in body.get("telefono", "") if c.isdigit())
+    nro_orden = body.get("nro_orden", "").strip()
+    mensaje   = body.get("mensaje", "").strip()
+
+    if not telefono:
+        raise HTTPException(status_code=400, detail="telefono es requerido")
+    if not mensaje and not nro_orden:
+        raise HTTPException(status_code=400, detail="mensaje o nro_orden es requerido")
+
+    if not mensaje:
+        mensaje = f"Hola 👋 Te informamos que tu pedido *#{nro_orden}* ya está listo. ¡Gracias por elegirnos!"
+
+    async with httpx.AsyncClient() as client:
+        ok = await whatsapp.enviar_mensaje(client, telefono, mensaje)
+    if not ok:
+        raise HTTPException(status_code=502, detail="Error enviando mensaje por WhatsApp")
+
+    canonical = await obtener_canonical_id(telefono)
+    await guardar_mensaje(canonical, "assistant", f"[Odoo] {mensaje}")
+    log.info("Odoo → WA enviado a %s | orden: %s", telefono, nro_orden or "—")
+    return {"ok": True, "telefono": telefono}
 
 
 @app.post("/responder")

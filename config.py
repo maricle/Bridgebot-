@@ -109,3 +109,7 @@ ODOO_NOTIFICAR_USUARIOS = [
 TURSO_URL   = os.environ.get("TURSO_URL", "").replace("libsql://", "https://")
 TURSO_TOKEN = os.environ.get("TURSO_TOKEN", "")
 DB_PATH     = os.environ.get("DB_PATH", "/app/bridgebot.db")
+
+# ─── API EXTERNA ──────────────────────────────────────────────────────────────
+# Clave para endpoints que llaman servicios externos (ej: Odoo)
+BRIDGE_API_KEY = os.environ.get("BRIDGE_API_KEY", "")
