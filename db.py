@@ -361,6 +361,21 @@ async def obtener_conversacion(user_id: str) -> list:
     )
 
 
+async def buscar_en_historial(texto: str, limite: int = 50) -> list[dict]:
+    """Usuarios cuyas conversaciones contienen el texto buscado."""
+    return await _query(
+        """SELECT DISTINCT h.ig_user_id, u.nombre, u.telefono, u.canal,
+                  MAX(h.creado_en) as ultimo_mensaje
+           FROM historial h
+           LEFT JOIN usuarios u ON u.ig_user_id = h.ig_user_id
+           WHERE h.rol = 'user' AND LOWER(h.contenido) LIKE LOWER(?)
+           GROUP BY h.ig_user_id
+           ORDER BY ultimo_mensaje DESC
+           LIMIT ?""",
+        (f"%{texto}%", limite),
+    )
+
+
 async def guardar_archivo(user_id: str, canal: str, tipo: str,
                           media_id: str = "", url: str = ""):
     await _run(

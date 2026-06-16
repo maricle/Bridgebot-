@@ -289,6 +289,49 @@
   }
   .empty { color: var(--muted); text-align: center; padding: 2.5rem; }
 
+  .mode-toggle {
+    display: flex;
+    gap: 0;
+    border-radius: 8px;
+    overflow: hidden;
+    border: 1.5px solid var(--border);
+  }
+  .mode-btn {
+    background: white;
+    color: var(--muted);
+    border: none;
+    padding: .45rem 1rem;
+    font-size: .85rem;
+    font-weight: 600;
+    cursor: pointer;
+    transition: all .15s;
+  }
+  .mode-btn.active { background: var(--accent); color: white; }
+  .mode-btn:not(.active):hover { background: var(--bg); }
+
+  .resultados-lista {
+    display: flex;
+    flex-direction: column;
+    gap: .5rem;
+    margin-bottom: 1rem;
+  }
+  .resultado-card {
+    background: var(--card);
+    border-radius: 10px;
+    padding: .8rem 1.2rem;
+    box-shadow: 0 1px 3px rgba(0,0,0,.07);
+    display: flex;
+    align-items: center;
+    gap: 1rem;
+    cursor: pointer;
+    border: 1.5px solid transparent;
+    transition: border-color .15s;
+  }
+  .resultado-card:hover { border-color: var(--accent); }
+  .resultado-card .rc-nombre { font-weight: 700; font-size: .95rem; }
+  .resultado-card .rc-tel { font-size: .82rem; color: var(--muted); }
+  .resultado-card .rc-fecha { margin-left: auto; font-size: .78rem; color: var(--muted); white-space: nowrap; }
+
   .reply-box {
     display: flex;
     gap: .75rem;
@@ -387,11 +430,19 @@
   <!-- ── HISTORIAL ── -->
   <div class="tab-panel" id="panel-historial">
     <div class="search-bar">
-      <input type="tel" id="input-telefono" placeholder="Número de teléfono (ej: 3794000000)"
+      <div class="mode-toggle">
+        <button class="mode-btn active" id="mode-tel" onclick="setMode('tel')">Por teléfono</button>
+        <button class="mode-btn" id="mode-txt" onclick="setMode('txt')">Por contenido</button>
+      </div>
+      <input type="tel"  id="input-telefono" placeholder="Número de teléfono (ej: 3794000000)"
              onkeydown="if(event.key==='Enter') buscarHistorial()">
-      <button class="btn-primary" onclick="buscarHistorial()">Buscar</button>
+      <input type="text" id="input-contenido" placeholder="Buscar en conversaciones (ej: estado de pedido)"
+             style="display:none"
+             onkeydown="if(event.key==='Enter') buscarContenido()">
+      <button class="btn-primary" id="btn-buscar" onclick="ejecutarBusqueda()">Buscar</button>
     </div>
     <p class="estado" id="estado-historial"></p>
+    <div id="lista-resultados" style="display:none"></div>
     <div id="resultado-historial"></div>
     <div class="reply-box" id="reply-box" style="display:none">
       <textarea id="reply-texto" placeholder="Escribir respuesta por WhatsApp..."
@@ -502,6 +553,97 @@ async function cargarAnalytics() {
 }
 
 // ── HISTORIAL ─────────────────────────────────────────────────────────────────
+let _modoHistorial = 'tel';
+
+function setMode(modo) {
+  _modoHistorial = modo;
+  document.getElementById('mode-tel').classList.toggle('active', modo === 'tel');
+  document.getElementById('mode-txt').classList.toggle('active', modo === 'txt');
+  document.getElementById('input-telefono').style.display = modo === 'tel' ? '' : 'none';
+  document.getElementById('input-contenido').style.display = modo === 'txt' ? '' : 'none';
+  document.getElementById('estado-historial').textContent = '';
+  document.getElementById('lista-resultados').style.display = 'none';
+  document.getElementById('lista-resultados').innerHTML = '';
+  document.getElementById('resultado-historial').innerHTML = '';
+  document.getElementById('reply-box').style.display = 'none';
+}
+
+function ejecutarBusqueda() {
+  if (_modoHistorial === 'tel') buscarHistorial();
+  else buscarContenido();
+}
+
+async function buscarContenido() {
+  const q = document.getElementById('input-contenido').value.trim();
+  if (!q) return;
+  const estado = document.getElementById('estado-historial');
+  const lista  = document.getElementById('lista-resultados');
+  document.getElementById('resultado-historial').innerHTML = '';
+  document.getElementById('reply-box').style.display = 'none';
+  estado.textContent = 'Buscando...';
+  lista.style.display = 'none';
+  try {
+    const res = await fetch(`/buscar-contenido?q=${encodeURIComponent(q)}`);
+    const data = await res.json();
+    if (!data.length) {
+      estado.textContent = `Sin conversaciones con "${q}".`;
+      return;
+    }
+    estado.textContent = `${data.length} conversación(es) contienen "${q}". Hacé clic para ver.`;
+    lista.style.display = 'block';
+    lista.innerHTML = '<div class="resultados-lista">' + data.map(r => {
+      const nombre = escHtml(r.nombre || '—');
+      const tel    = escHtml(r.telefono || r.ig_user_id || '—');
+      const fecha  = (r.ultimo_mensaje || '').substring(0, 16).replace('T', ' ');
+      const canal  = r.canal === 'whatsapp' ? '<span class="badge wa">WA</span>'
+                   : r.canal === 'instagram' ? '<span class="badge ig">IG</span>' : '';
+      return `<div class="resultado-card" onclick='cargarConversacionDirecta(${JSON.stringify(r.ig_user_id)})'>
+        ${canal}
+        <div>
+          <div class="rc-nombre">${nombre}</div>
+          <div class="rc-tel">${tel}</div>
+        </div>
+        <div class="rc-fecha">${fecha}</div>
+      </div>`;
+    }).join('') + '</div>';
+  } catch (e) {
+    estado.textContent = 'Error: ' + e.message;
+  }
+}
+
+async function cargarConversacionDirecta(userId) {
+  const estado = document.getElementById('estado-historial');
+  estado.textContent = 'Cargando conversación...';
+  try {
+    const res = await fetch(`/conversacion/${encodeURIComponent(userId)}`);
+    const d = await res.json();
+    _currentUserId = d.user_id;
+    const c = d.cliente;
+    const esWA = (c.canal === 'whatsapp') || (!c.canal && /^\d{10,15}$/.test(d.user_id));
+    estado.textContent = '';
+    document.getElementById('resultado-historial').innerHTML = `
+      <div class="cliente-info">
+        <div class="ci-item"><div class="ci-label">Nombre</div><div class="ci-val">${c.nombre || '—'}</div></div>
+        <div class="ci-item"><div class="ci-label">Teléfono</div><div class="ci-val">${c.telefono || d.user_id}</div></div>
+        <div class="ci-item"><div class="ci-label">Canal</div><div class="ci-val">${c.canal || '—'}</div></div>
+      </div>
+      <div class="conversacion" id="conv-box">
+        ${d.historial.length === 0
+          ? '<span class="empty">Sin mensajes registrados.</span>'
+          : d.historial.map(m => `
+            <div class="msg ${m.rol}">
+              ${escHtml(m.contenido)}
+              <div class="msg-meta">${m.creado_en || ''}</div>
+            </div>`).join('')}
+      </div>`;
+    const box = document.getElementById('conv-box');
+    if (box) box.scrollTop = box.scrollHeight;
+    document.getElementById('reply-box').style.display = esWA ? 'flex' : 'none';
+  } catch(e) {
+    estado.textContent = 'Error: ' + e.message;
+  }
+}
+
 async function buscarHistorial() {
   const tel = document.getElementById('input-telefono').value.trim();
   if (!tel) return;

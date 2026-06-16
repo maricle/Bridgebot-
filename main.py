@@ -14,13 +14,13 @@ from fastapi.responses import HTMLResponse, PlainTextResponse
 import instagram
 import whatsapp
 from config import AUTO_RESPUESTA, EXCLUIR_BOT, IG_ACCOUNT_ID, SALUDO, VERIFY_TOKEN
-from db import (buscar_cliente_odoo_por_telefono, buscar_usuario_por_telefono,
-                conversacion_cerrada, es_usuario_nuevo, guardar_archivo,
-                guardar_datos_cliente, guardar_mensaje, init_db, listar_archivos,
-                limpiar_historial, marcar_saludado, obtener_archivo_por_id,
-                obtener_canonical_id, obtener_conversacion, obtener_datos_cliente,
-                obtener_leads, obtener_usuarios, resetear_cerrada, resetear_usuario,
-                stats)
+from db import (buscar_cliente_odoo_por_telefono, buscar_en_historial,
+                buscar_usuario_por_telefono, conversacion_cerrada, es_usuario_nuevo,
+                guardar_archivo, guardar_datos_cliente, guardar_mensaje, init_db,
+                listar_archivos, limpiar_historial, marcar_saludado,
+                obtener_archivo_por_id, obtener_canonical_id, obtener_conversacion,
+                obtener_datos_cliente, obtener_leads, obtener_usuarios,
+                resetear_cerrada, resetear_usuario, stats)
 from ai import generar_respuesta
 
 logging.basicConfig(level=logging.INFO, format="%(levelname)s: %(message)s")
@@ -343,6 +343,14 @@ async def ver_conversacion(user_id: str):
     datos = await obtener_datos_cliente(user_id)
     historial = await obtener_conversacion(user_id)
     return {"user_id": user_id, "cliente": datos, "historial": historial}
+
+
+@app.get("/buscar-contenido")
+async def buscar_por_contenido(q: str):
+    if not q or len(q.strip()) < 2:
+        raise HTTPException(status_code=400, detail="Texto de búsqueda muy corto")
+    resultados = await buscar_en_historial(q.strip())
+    return resultados
 
 
 @app.get("/buscar")
