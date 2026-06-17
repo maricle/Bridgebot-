@@ -374,7 +374,8 @@ async def webhook_odoo(request: Request):
         raise HTTPException(status_code=401, detail="API key inválida")
 
     payload = await request.json()
-    log.info("Odoo webhook recibido: %s", str(payload)[:200])
+    log.info("Odoo webhook recibido — headers: %s", dict(request.headers))
+    log.info("Odoo webhook payload completo: %s", payload)
 
     # Extraer número de orden — Odoo lo manda en "name" o "display_name"
     nro_orden = payload.get("name") or payload.get("display_name") or "—"
