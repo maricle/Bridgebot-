@@ -10,6 +10,7 @@ from contextlib import asynccontextmanager
 import httpx
 from fastapi import FastAPI, HTTPException, Request, Response
 from fastapi.responses import HTMLResponse, PlainTextResponse
+from fastapi.staticfiles import StaticFiles
 
 import instagram
 import whatsapp
@@ -65,6 +66,7 @@ async def _sync_clientes_loop():
 
 
 app = FastAPI(title="BridgeBot", version="5.0.0", lifespan=lifespan)
+app.mount("/static", StaticFiles(directory="static"), name="static")
 
 
 # ─── INSTAGRAM ────────────────────────────────────────────────────────────────
