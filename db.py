@@ -444,6 +444,14 @@ async def upsert_clientes_odoo(clientes: list[dict]):
     log.info("Sync Odoo: %d clientes actualizados en DB local", len(clientes))
 
 
+async def buscar_cliente_odoo_por_id(odoo_id: int) -> dict | None:
+    rows = await _query(
+        "SELECT odoo_id, nombre, telefono, email FROM clientes_odoo WHERE odoo_id = ?",
+        (odoo_id,),
+    )
+    return rows[0] if rows else None
+
+
 async def buscar_cliente_odoo_por_telefono(telefono: str) -> dict | None:
     """Busca por los últimos 10 dígitos (ignora prefijos de país y formato)."""
     digitos = "".join(c for c in telefono if c.isdigit())

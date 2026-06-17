@@ -14,13 +14,14 @@ from fastapi.responses import HTMLResponse, PlainTextResponse
 import instagram
 import whatsapp
 from config import AUTO_RESPUESTA, BRIDGE_API_KEY, EXCLUIR_BOT, IG_ACCOUNT_ID, SALUDO, VERIFY_TOKEN
-from db import (buscar_cliente_odoo_por_telefono, buscar_en_historial,
-                buscar_usuario_por_telefono, conversacion_cerrada, es_usuario_nuevo,
-                guardar_archivo, guardar_datos_cliente, guardar_mensaje, init_db,
-                listar_archivos, limpiar_historial, marcar_saludado,
-                obtener_archivo_por_id, obtener_canonical_id, obtener_conversacion,
-                obtener_datos_cliente, obtener_leads, obtener_usuarios,
-                resetear_cerrada, resetear_usuario, stats)
+from db import (buscar_cliente_odoo_por_id, buscar_cliente_odoo_por_telefono,
+                buscar_en_historial, buscar_usuario_por_telefono,
+                conversacion_cerrada, es_usuario_nuevo, guardar_archivo,
+                guardar_datos_cliente, guardar_mensaje, init_db, listar_archivos,
+                limpiar_historial, marcar_saludado, obtener_archivo_por_id,
+                obtener_canonical_id, obtener_conversacion, obtener_datos_cliente,
+                obtener_leads, obtener_usuarios, resetear_cerrada, resetear_usuario,
+                stats)
 from ai import generar_respuesta
 
 logging.basicConfig(level=logging.INFO, format="%(levelname)s: %(message)s")
@@ -361,6 +362,62 @@ async def buscar_por_telefono(telefono: str):
     datos = await obtener_datos_cliente(user_id)
     historial = await obtener_conversacion(user_id)
     return {"encontrado": True, "user_id": user_id, "cliente": datos, "historial": historial}
+
+
+@app.post("/odoo/webhook")
+async def webhook_odoo(request: Request):
+    """Recibe webhooks de salida de Odoo 19 y envía notificación por WhatsApp."""
+    api_key = request.headers.get("X-Api-Key", "")
+    if not BRIDGE_API_KEY or api_key != BRIDGE_API_KEY:
+        raise HTTPException(status_code=401, detail="API key inválida")
+
+    payload = await request.json()
+    log.info("Odoo webhook recibido: %s", str(payload)[:200])
+
+    # Extraer número de orden — Odoo lo manda en "name" o "display_name"
+    nro_orden = payload.get("name") or payload.get("display_name") or "—"
+
+    # Extraer partner_id: puede ser int o dict {"id": N, "display_name": "..."}
+    partner_raw = payload.get("partner_id")
+    partner_id  = partner_raw.get("id") if isinstance(partner_raw, dict) else partner_raw
+    nombre      = (partner_raw.get("display_name") if isinstance(partner_raw, dict) else None) or ""
+
+    # Extraer teléfono: Odoo puede mandarlo directo o hay que buscarlo en sync
+    telefono = (
+        payload.get("partner_phone")
+        or payload.get("partner_mobile")
+        or (partner_raw.get("phone") if isinstance(partner_raw, dict) else None)
+        or (partner_raw.get("mobile") if isinstance(partner_raw, dict) else None)
+        or ""
+    )
+    telefono = "".join(c for c in telefono if c.isdigit())
+
+    # Si no vino el teléfono, buscarlo en la tabla de sync local por partner_id
+    if not telefono and partner_id:
+        cliente = await buscar_cliente_odoo_por_id(int(partner_id))
+        if cliente:
+            telefono = "".join(c for c in (cliente.get("telefono") or "") if c.isdigit())
+            nombre = nombre or cliente.get("nombre") or ""
+
+    if not telefono:
+        log.warning("Odoo webhook: sin teléfono para orden %s (partner_id=%s)", nro_orden, partner_id)
+        return {"ok": False, "detalle": "Sin teléfono disponible para este cliente"}
+
+    nombre_corto = nombre.split()[0] if nombre else "te"
+    mensaje = (
+        payload.get("mensaje")  # override opcional desde Odoo
+        or f"Hola {nombre_corto} 👋 Tu pedido *{nro_orden}* ya está listo. ¡Gracias por elegirnos!"
+    )
+
+    async with httpx.AsyncClient() as client:
+        ok = await whatsapp.enviar_mensaje(client, telefono, mensaje)
+    if not ok:
+        raise HTTPException(status_code=502, detail="Error enviando mensaje por WhatsApp")
+
+    canonical = await obtener_canonical_id(telefono)
+    await guardar_mensaje(canonical, "assistant", f"[Odoo] {mensaje}")
+    log.info("Odoo webhook → WA enviado a %s | orden: %s", telefono, nro_orden)
+    return {"ok": True, "telefono": telefono, "orden": nro_orden}
 
 
 @app.post("/odoo/enviar")
