@@ -14,7 +14,8 @@ from fastapi.staticfiles import StaticFiles
 
 import instagram
 import whatsapp
-from config import AUTO_RESPUESTA, BRIDGE_API_KEY, EXCLUIR_BOT, IG_ACCOUNT_ID, SALUDO, VERIFY_TOKEN
+from config import (AUTO_RESPUESTA, BRIDGE_API_KEY, EXCLUIR_BOT, IG_ACCOUNT_ID,
+                    SALUDO, VERIFY_TOKEN, WA_MSG_ORDEN_CONFIRMADA, WA_MSG_TRABAJO_LISTO)
 from db import (buscar_cliente_odoo_por_id, buscar_cliente_odoo_por_telefono,
                 buscar_en_historial, buscar_usuario_por_telefono,
                 conversacion_cerrada, es_usuario_nuevo, guardar_archivo,
@@ -366,60 +367,107 @@ async def buscar_por_telefono(telefono: str):
     return {"encontrado": True, "user_id": user_id, "cliente": datos, "historial": historial}
 
 
-@app.post("/odoo/webhook")
-async def webhook_odoo(request: Request):
-    """Recibe webhooks de salida de Odoo 19 y envía notificación por WhatsApp."""
+async def _verificar_api_key(request: Request):
     api_key = request.headers.get("X-Api-Key", "")
     if not BRIDGE_API_KEY or api_key != BRIDGE_API_KEY:
         raise HTTPException(status_code=401, detail="API key inválida")
 
-    payload = await request.json()
-    log.info("Odoo webhook recibido — headers: %s", dict(request.headers))
-    log.info("Odoo webhook payload completo: %s", payload)
 
-    # Extraer número de orden — Odoo lo manda en "name" o "display_name"
-    nro_orden = payload.get("name") or payload.get("display_name") or "—"
-
-    # Extraer partner_id: puede ser int o dict {"id": N, "display_name": "..."}
+async def _extraer_cliente(payload: dict) -> tuple[str, str]:
+    """Extrae (telefono, nombre) del payload de Odoo. Busca en sync local si no viene el teléfono."""
     partner_raw = payload.get("partner_id")
     partner_id  = partner_raw.get("id") if isinstance(partner_raw, dict) else partner_raw
-    nombre      = (partner_raw.get("display_name") if isinstance(partner_raw, dict) else None) or ""
+    nombre = (partner_raw.get("display_name") if isinstance(partner_raw, dict) else None) or ""
 
-    # Extraer teléfono: Odoo puede mandarlo directo o hay que buscarlo en sync
     telefono = (
         payload.get("partner_phone")
         or payload.get("partner_mobile")
-        or (partner_raw.get("phone") if isinstance(partner_raw, dict) else None)
-        or (partner_raw.get("mobile") if isinstance(partner_raw, dict) else None)
+        or payload.get("telefono")
+        or (partner_raw.get("phone")   if isinstance(partner_raw, dict) else None)
+        or (partner_raw.get("mobile")  if isinstance(partner_raw, dict) else None)
         or ""
     )
     telefono = "".join(c for c in telefono if c.isdigit())
 
-    # Si no vino el teléfono, buscarlo en la tabla de sync local por partner_id
     if not telefono and partner_id:
         cliente = await buscar_cliente_odoo_por_id(int(partner_id))
         if cliente:
             telefono = "".join(c for c in (cliente.get("telefono") or "") if c.isdigit())
-            nombre = nombre or cliente.get("nombre") or ""
+            nombre   = nombre or cliente.get("nombre") or ""
 
-    if not telefono:
-        log.warning("Odoo webhook: sin teléfono para orden %s (partner_id=%s)", nro_orden, partner_id)
-        return {"ok": False, "detalle": "Sin teléfono disponible para este cliente"}
+    return telefono, nombre
 
-    nombre_corto = nombre.split()[0] if nombre else "te"
-    mensaje = (
-        payload.get("mensaje")  # override opcional desde Odoo
-        or f"Hola {nombre_corto} 👋 Tu pedido *{nro_orden}* ya está listo. ¡Gracias por elegirnos!"
-    )
 
+async def _enviar_notificacion_wa(telefono: str, mensaje: str, nro_orden: str):
     async with httpx.AsyncClient() as client:
         ok = await whatsapp.enviar_mensaje(client, telefono, mensaje)
     if not ok:
         raise HTTPException(status_code=502, detail="Error enviando mensaje por WhatsApp")
-
     canonical = await obtener_canonical_id(telefono)
     await guardar_mensaje(canonical, "assistant", f"[Odoo] {mensaje}")
-    log.info("Odoo webhook → WA enviado a %s | orden: %s", telefono, nro_orden)
+    log.info("Odoo → WA enviado a %s | orden: %s", telefono, nro_orden)
+
+
+@app.post("/odoo/webhook")
+async def webhook_odoo(request: Request):
+    """Endpoint genérico — mantiene compatibilidad con la configuración anterior."""
+    await _verificar_api_key(request)
+    payload = await request.json()
+    log.info("Odoo webhook (genérico) payload: %s", payload)
+    nro_orden = payload.get("name") or payload.get("display_name") or "—"
+    telefono, nombre = await _extraer_cliente(payload)
+    if not telefono:
+        return {"ok": False, "detalle": f"Sin teléfono para orden {nro_orden}"}
+    nombre_corto = nombre.split()[0] if nombre else "te"
+    mensaje = payload.get("mensaje") or WA_MSG_TRABAJO_LISTO.format(nombre=nombre_corto, nro_orden=nro_orden)
+    await _enviar_notificacion_wa(telefono, mensaje, nro_orden)
+    return {"ok": True, "telefono": telefono, "orden": nro_orden}
+
+
+@app.post("/odoo/webhook/orden-confirmada")
+async def webhook_orden_confirmada(request: Request):
+    """Dispara cuando se confirma una orden de venta (sale.order state=sale)."""
+    await _verificar_api_key(request)
+    payload = await request.json()
+    log.info("Odoo webhook orden-confirmada payload: %s", payload)
+
+    nro_orden = payload.get("name") or payload.get("nro_orden") or "—"
+    telefono, nombre = await _extraer_cliente(payload)
+
+    if not telefono:
+        log.warning("orden-confirmada: sin teléfono para orden %s", nro_orden)
+        return {"ok": False, "detalle": f"Sin teléfono para orden {nro_orden}"}
+
+    nombre_corto = nombre.split()[0] if nombre else "te"
+    mensaje = WA_MSG_ORDEN_CONFIRMADA.format(nombre=nombre_corto, nro_orden=nro_orden)
+    await _enviar_notificacion_wa(telefono, mensaje, nro_orden)
+    return {"ok": True, "telefono": telefono, "orden": nro_orden}
+
+
+@app.post("/odoo/webhook/trabajo-listo")
+async def webhook_trabajo_listo(request: Request):
+    """Dispara cuando la tarea asociada a la orden pasa a estado 'listo'."""
+    await _verificar_api_key(request)
+    payload = await request.json()
+    log.info("Odoo webhook trabajo-listo payload: %s", payload)
+
+    # La tarea puede traer el nro de orden en sale_order_id.name o nro_orden
+    sale_order = payload.get("sale_order_id")
+    nro_orden = (
+        payload.get("nro_orden")
+        or payload.get("name")
+        or (sale_order.get("name") if isinstance(sale_order, dict) else None)
+        or "—"
+    )
+    telefono, nombre = await _extraer_cliente(payload)
+
+    if not telefono:
+        log.warning("trabajo-listo: sin teléfono para orden %s", nro_orden)
+        return {"ok": False, "detalle": f"Sin teléfono para orden {nro_orden}"}
+
+    nombre_corto = nombre.split()[0] if nombre else "te"
+    mensaje = WA_MSG_TRABAJO_LISTO.format(nombre=nombre_corto, nro_orden=nro_orden)
+    await _enviar_notificacion_wa(telefono, mensaje, nro_orden)
     return {"ok": True, "telefono": telefono, "orden": nro_orden}
 
 
