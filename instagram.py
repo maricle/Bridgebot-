@@ -23,6 +23,15 @@ def verificar_firma(payload: bytes, firma_header: str) -> bool:
     firma_esperada = hmac.new(APP_SECRET.encode(), payload, hashlib.sha256).hexdigest()
     return hmac.compare_digest(firma_header[7:], firma_esperada)
 
+def extraer_message_id(data: dict) -> str:
+    entry = data.get("entry", [{}])[0]
+    for msg in entry.get("messaging", []):
+        mid = msg.get("message", {}).get("mid", "")
+        if mid:
+            return mid
+    return ""
+
+
 def extraer_mensaje(data: dict) -> tuple[str, str]:
     """Retorna (sender_id, texto) del payload de Instagram."""
     entry = data.get("entry", [{}])[0]

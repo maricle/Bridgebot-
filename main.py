@@ -5,6 +5,7 @@ Kleba Dev — 2026
 
 import asyncio
 import logging
+from collections import defaultdict
 from contextlib import asynccontextmanager
 
 import httpx
@@ -31,6 +32,8 @@ log = logging.getLogger(__name__)
 logging.getLogger("httpx").setLevel(logging.WARNING)
 logging.getLogger("httpcore").setLevel(logging.WARNING)
 
+_user_locks: dict[str, asyncio.Lock] = defaultdict(asyncio.Lock)
+
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     from config import ANTHROPIC_API_KEY
@@ -53,6 +56,11 @@ async def _refresh_precios_loop():
         await asyncio.sleep(86400)
         await cargar_precios()
         log.info("Precios actualizados automáticamente")
+        inactivos = [uid for uid, lock in list(_user_locks.items()) if not lock.locked()]
+        for uid in inactivos:
+            _user_locks.pop(uid, None)
+        if inactivos:
+            log.info("Limpieza locks usuarios: %d eliminados", len(inactivos))
 
 
 async def _sync_clientes_loop():
@@ -111,12 +119,13 @@ async def procesar_instagram(data: dict):
         # Archivos adjuntos
         sender_arch, archivos = instagram.extraer_archivos(data)
         if sender_arch and archivos:
-            canonical = await obtener_canonical_id(sender_arch)
-            for arch in archivos:
-                await guardar_archivo(canonical, "instagram", arch["tipo"], url=arch.get("url", ""))
-            log.info("IG: %s archivo(s) guardado(s) para %s", len(archivos), sender_arch)
-            async with httpx.AsyncClient() as client:
-                await instagram.enviar_mensaje(client, sender_arch, "¡Recibimos el archivo! Lo vamos a adjuntar al pedido.")
+            async with _user_locks[sender_arch]:
+                canonical = await obtener_canonical_id(sender_arch)
+                for arch in archivos:
+                    await guardar_archivo(canonical, "instagram", arch["tipo"], url=arch.get("url", ""))
+                log.info("IG: %s archivo(s) guardado(s) para %s", len(archivos), sender_arch)
+                async with httpx.AsyncClient() as client:
+                    await instagram.enviar_mensaje(client, sender_arch, "¡Recibimos el archivo! Lo vamos a adjuntar al pedido.")
             return
 
         sender_id, mensaje = instagram.extraer_mensaje(data)
@@ -130,27 +139,36 @@ async def procesar_instagram(data: dict):
             log.info("IG: atendido por humano %s, ignorando.", sender_id)
             return
 
-        cerrada = await conversacion_cerrada(sender_id)
-        if cerrada:
-            await resetear_cerrada(sender_id)
-            canonical = await obtener_canonical_id(sender_id)
-            await limpiar_historial(canonical)
-            log.info("IG: conversación cerrada reseteada para %s — procesando mensaje con Claude", sender_id)
-
-        log.info("IG user=%s: %s", sender_id, mensaje[:100])
-        async with httpx.AsyncClient() as client:
-            if AUTO_RESPUESTA:
-                if cerrada or await es_usuario_nuevo(sender_id):
-                    await instagram.enviar_mensaje(client, sender_id, SALUDO)
-                    if not cerrada:
-                        await marcar_saludado(sender_id, "instagram")
+        # Deduplicación (antes del lock, después de filtros)
+        message_id = instagram.extraer_message_id(data)
+        if message_id:
+            if await mensaje_ya_procesado(message_id):
+                log.info("IG: mensaje duplicado ignorado: %s", message_id)
                 return
+            await marcar_mensaje_procesado(message_id)
 
-            nuevo = await es_usuario_nuevo(sender_id)
-            if nuevo:
-                await marcar_saludado(sender_id, "instagram")
-            respuesta = await generar_respuesta(sender_id, mensaje, "instagram", es_nuevo=(cerrada or nuevo))
-            await instagram.enviar_mensaje(client, sender_id, respuesta)
+        async with _user_locks[sender_id]:
+            cerrada = await conversacion_cerrada(sender_id)
+            if cerrada:
+                await resetear_cerrada(sender_id)
+                canonical = await obtener_canonical_id(sender_id)
+                await limpiar_historial(canonical)
+                log.info("IG: conversación cerrada reseteada para %s — procesando mensaje con Claude", sender_id)
+
+            log.info("IG user=%s: %s", sender_id, mensaje[:100])
+            async with httpx.AsyncClient() as client:
+                if AUTO_RESPUESTA:
+                    if cerrada or await es_usuario_nuevo(sender_id):
+                        await instagram.enviar_mensaje(client, sender_id, SALUDO)
+                        if not cerrada:
+                            await marcar_saludado(sender_id, "instagram")
+                    return
+
+                nuevo = await es_usuario_nuevo(sender_id)
+                if nuevo:
+                    await marcar_saludado(sender_id, "instagram")
+                respuesta = await generar_respuesta(sender_id, mensaje, "instagram", es_nuevo=(cerrada or nuevo))
+                await instagram.enviar_mensaje(client, sender_id, respuesta)
 
     except Exception as e:
         log.exception("IG error procesando evento: %s", e)
@@ -191,12 +209,13 @@ async def procesar_whatsapp(data: dict):
         # Archivos adjuntos
         sender_arch, archivos = whatsapp.extraer_archivos(data)
         if sender_arch and archivos:
-            canonical = await obtener_canonical_id(sender_arch)
-            for arch in archivos:
-                await guardar_archivo(canonical, "whatsapp", arch["tipo"], media_id=arch.get("media_id", ""))
-            log.info("WA: %s archivo(s) guardado(s) para %s", len(archivos), sender_arch)
-            async with httpx.AsyncClient() as client:
-                await whatsapp.enviar_mensaje(client, sender_arch, "¡Recibimos el archivo! Lo vamos a adjuntar al pedido.")
+            async with _user_locks[sender_arch]:
+                canonical = await obtener_canonical_id(sender_arch)
+                for arch in archivos:
+                    await guardar_archivo(canonical, "whatsapp", arch["tipo"], media_id=arch.get("media_id", ""))
+                log.info("WA: %s archivo(s) guardado(s) para %s", len(archivos), sender_arch)
+                async with httpx.AsyncClient() as client:
+                    await whatsapp.enviar_mensaje(client, sender_arch, "¡Recibimos el archivo! Lo vamos a adjuntar al pedido.")
             return
 
         sender_id, mensaje = whatsapp.extraer_mensaje(data)
@@ -207,25 +226,26 @@ async def procesar_whatsapp(data: dict):
             log.info("WA: atendido por humano %s, ignorando.", sender_id)
             return
 
-        cerrada = await conversacion_cerrada(sender_id)
-        if cerrada:
-            await resetear_cerrada(sender_id)
-            canonical = await obtener_canonical_id(sender_id)
-            await limpiar_historial(canonical)
-            log.info("WA: conversación cerrada reseteada para %s — procesando mensaje con Claude", sender_id)
+        async with _user_locks[sender_id]:
+            cerrada = await conversacion_cerrada(sender_id)
+            if cerrada:
+                await resetear_cerrada(sender_id)
+                canonical = await obtener_canonical_id(sender_id)
+                await limpiar_historial(canonical)
+                log.info("WA: conversación cerrada reseteada para %s — procesando mensaje con Claude", sender_id)
 
-        log.info("WA user=%s: %s", sender_id, mensaje[:100])
-        async with httpx.AsyncClient() as client:
-            nuevo = await es_usuario_nuevo(sender_id)
-            if nuevo:
-                await marcar_saludado(sender_id, "whatsapp")
-                odoo_match = await buscar_cliente_odoo_por_telefono(sender_id)
-                if odoo_match and odoo_match.get("nombre"):
-                    await guardar_datos_cliente(sender_id, nombre=odoo_match["nombre"],
-                                                email=odoo_match.get("email") or "")
-                    log.info("WA: cliente Odoo identificado para %s (%s)", sender_id, odoo_match["nombre"])
-            respuesta = await generar_respuesta(sender_id, mensaje, "whatsapp", es_nuevo=(cerrada or nuevo))
-            await whatsapp.enviar_mensaje(client, sender_id, respuesta)
+            log.info("WA user=%s: %s", sender_id, mensaje[:100])
+            async with httpx.AsyncClient() as client:
+                nuevo = await es_usuario_nuevo(sender_id)
+                if nuevo:
+                    await marcar_saludado(sender_id, "whatsapp")
+                    odoo_match = await buscar_cliente_odoo_por_telefono(sender_id)
+                    if odoo_match and odoo_match.get("nombre"):
+                        await guardar_datos_cliente(sender_id, nombre=odoo_match["nombre"],
+                                                    email=odoo_match.get("email") or "")
+                        log.info("WA: cliente Odoo identificado para %s (%s)", sender_id, odoo_match["nombre"])
+                respuesta = await generar_respuesta(sender_id, mensaje, "whatsapp", es_nuevo=(cerrada or nuevo))
+                await whatsapp.enviar_mensaje(client, sender_id, respuesta)
 
     except Exception as e:
         log.exception("WA error procesando evento: %s", e)
