@@ -20,10 +20,10 @@ from db import (buscar_cliente_odoo_por_id, buscar_cliente_odoo_por_telefono,
                 buscar_en_historial, buscar_usuario_por_telefono,
                 conversacion_cerrada, es_usuario_nuevo, guardar_archivo,
                 guardar_datos_cliente, guardar_mensaje, init_db, listar_archivos,
-                limpiar_historial, marcar_saludado, obtener_archivo_por_id,
-                obtener_canonical_id, obtener_conversacion, obtener_datos_cliente,
-                obtener_leads, obtener_usuarios, resetear_cerrada, resetear_usuario,
-                stats)
+                limpiar_historial, marcar_mensaje_procesado, marcar_saludado,
+                mensaje_ya_procesado, obtener_archivo_por_id, obtener_canonical_id,
+                obtener_conversacion, obtener_datos_cliente, obtener_leads,
+                obtener_usuarios, resetear_cerrada, resetear_usuario, stats)
 from ai import generar_respuesta
 
 logging.basicConfig(level=logging.INFO, format="%(levelname)s: %(message)s")
@@ -129,30 +129,27 @@ async def procesar_instagram(data: dict):
         if sender_id in EXCLUIR_BOT:
             log.info("IG: atendido por humano %s, ignorando.", sender_id)
             return
-        if await conversacion_cerrada(sender_id):
+
+        cerrada = await conversacion_cerrada(sender_id)
+        if cerrada:
             await resetear_cerrada(sender_id)
             canonical = await obtener_canonical_id(sender_id)
             await limpiar_historial(canonical)
-            datos     = await obtener_datos_cliente(canonical)
-            nombre    = (datos.get("nombre") or "").split()[0]
-            saludo_r  = f"¡Hola {nombre}! ¿Te ayudo con tu pedido de hoy?" if nombre else SALUDO
-            async with httpx.AsyncClient() as client:
-                await instagram.enviar_mensaje(client, sender_id, saludo_r)
-            log.info("IG: saludo de retorno para %s (%s)", sender_id, nombre or "anon")
-            return
+            log.info("IG: conversación cerrada reseteada para %s — procesando mensaje con Claude", sender_id)
 
         log.info("IG user=%s: %s", sender_id, mensaje[:100])
         async with httpx.AsyncClient() as client:
             if AUTO_RESPUESTA:
-                if await es_usuario_nuevo(sender_id):
+                if cerrada or await es_usuario_nuevo(sender_id):
                     await instagram.enviar_mensaje(client, sender_id, SALUDO)
-                    await marcar_saludado(sender_id, "instagram")
+                    if not cerrada:
+                        await marcar_saludado(sender_id, "instagram")
                 return
 
             nuevo = await es_usuario_nuevo(sender_id)
             if nuevo:
                 await marcar_saludado(sender_id, "instagram")
-            respuesta = await generar_respuesta(sender_id, mensaje, "instagram", es_nuevo=nuevo)
+            respuesta = await generar_respuesta(sender_id, mensaje, "instagram", es_nuevo=(cerrada or nuevo))
             await instagram.enviar_mensaje(client, sender_id, respuesta)
 
     except Exception as e:
@@ -183,6 +180,14 @@ async def recibir_whatsapp(request: Request):
 
 async def procesar_whatsapp(data: dict):
     try:
+        # Deduplicación: Meta reintenta el webhook si no recibe 200 a tiempo
+        message_id = whatsapp.extraer_message_id(data)
+        if message_id:
+            if await mensaje_ya_procesado(message_id):
+                log.info("WA: mensaje duplicado ignorado: %s", message_id)
+                return
+            await marcar_mensaje_procesado(message_id)
+
         # Archivos adjuntos
         sender_arch, archivos = whatsapp.extraer_archivos(data)
         if sender_arch and archivos:
@@ -201,17 +206,13 @@ async def procesar_whatsapp(data: dict):
         if sender_id in EXCLUIR_BOT:
             log.info("WA: atendido por humano %s, ignorando.", sender_id)
             return
-        if await conversacion_cerrada(sender_id):
+
+        cerrada = await conversacion_cerrada(sender_id)
+        if cerrada:
             await resetear_cerrada(sender_id)
             canonical = await obtener_canonical_id(sender_id)
             await limpiar_historial(canonical)
-            datos     = await obtener_datos_cliente(canonical)
-            nombre    = (datos.get("nombre") or "").split()[0]
-            saludo_r  = f"¡Hola {nombre}! ¿Te ayudo con tu pedido de hoy?" if nombre else SALUDO
-            async with httpx.AsyncClient() as client:
-                await whatsapp.enviar_mensaje(client, sender_id, saludo_r)
-            log.info("WA: saludo de retorno para %s (%s)", sender_id, nombre or "anon")
-            return
+            log.info("WA: conversación cerrada reseteada para %s — procesando mensaje con Claude", sender_id)
 
         log.info("WA user=%s: %s", sender_id, mensaje[:100])
         async with httpx.AsyncClient() as client:
@@ -223,7 +224,7 @@ async def procesar_whatsapp(data: dict):
                     await guardar_datos_cliente(sender_id, nombre=odoo_match["nombre"],
                                                 email=odoo_match.get("email") or "")
                     log.info("WA: cliente Odoo identificado para %s (%s)", sender_id, odoo_match["nombre"])
-            respuesta = await generar_respuesta(sender_id, mensaje, "whatsapp", es_nuevo=nuevo)
+            respuesta = await generar_respuesta(sender_id, mensaje, "whatsapp", es_nuevo=(cerrada or nuevo))
             await whatsapp.enviar_mensaje(client, sender_id, respuesta)
 
     except Exception as e:

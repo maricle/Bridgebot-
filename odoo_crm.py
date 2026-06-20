@@ -1,5 +1,6 @@
 import base64
 import logging
+import re
 
 import httpx
 
@@ -60,6 +61,22 @@ async def _execute_kw(client: httpx.AsyncClient, uid: int, model: str,
     if "error" in data:
         raise Exception(f"Odoo RPC error: {data['error']}")
     return data["result"]
+
+
+_URL_RE = re.compile(r'https?://[^\s<>"\']+')
+
+
+def _extraer_links(historial: list) -> list[str]:
+    vistos: set[str] = set()
+    links: list[str] = []
+    for m in historial:
+        if m.get("role") != "user":
+            continue
+        for url in _URL_RE.findall(m.get("content", "")):
+            if url not in vistos:
+                vistos.add(url)
+                links.append(url)
+    return links
 
 
 def _transcripcion_html(historial: list) -> str:
@@ -207,10 +224,16 @@ async def crear_lead(nombre_cliente: str, telefono: str, descripcion: str,
 
     import html as _html
     titulo = f"[{canal.upper()}][{destino.upper()}] {nombre_cliente or 'Cliente sin nombre'}"
+    links = _extraer_links(historial or [])
+    links_html = ""
+    if links:
+        items = "".join(f'<li><a href="{_html.escape(u)}">{_html.escape(u)}</a></li>' for u in links)
+        links_html = f"<hr/><p><b>━━━ LINKS ENVIADOS POR EL CLIENTE ━━━</b></p><ul>{items}</ul>"
     cuerpo = (
         f"<p><b>Canal:</b> {canal} &nbsp;|&nbsp; <b>Área:</b> {destino}</p>"
         f"<p><b>Teléfono:</b> {_html.escape(telefono or 'No proporcionado')}</p>"
         f"<p>{_html.escape(descripcion)}</p>"
+        + links_html
         + _transcripcion_html(historial or [])
     )
 

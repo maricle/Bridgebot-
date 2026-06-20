@@ -18,6 +18,10 @@ _CREATE_TABLES = [
         email       TEXT,
         synced_at   TEXT DEFAULT (datetime('now'))
     )""",
+    """CREATE TABLE IF NOT EXISTS mensajes_procesados (
+        message_id   TEXT PRIMARY KEY,
+        procesado_en TEXT DEFAULT (datetime('now'))
+    )""",
     """CREATE TABLE IF NOT EXISTS archivos (
         id          INTEGER PRIMARY KEY AUTOINCREMENT,
         ig_user_id  TEXT NOT NULL,
@@ -450,6 +454,20 @@ async def buscar_cliente_odoo_por_id(odoo_id: int) -> dict | None:
         (odoo_id,),
     )
     return rows[0] if rows else None
+
+
+async def mensaje_ya_procesado(message_id: str) -> bool:
+    rows = await _query(
+        "SELECT 1 FROM mensajes_procesados WHERE message_id = ?", (message_id,)
+    )
+    return bool(rows)
+
+
+async def marcar_mensaje_procesado(message_id: str):
+    await _run(
+        "INSERT OR IGNORE INTO mensajes_procesados (message_id) VALUES (?)",
+        (message_id,),
+    )
 
 
 async def buscar_cliente_odoo_por_telefono(telefono: str) -> dict | None:

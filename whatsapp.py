@@ -7,6 +7,16 @@ from config import MODO_DEV, WA_ACCESS_TOKEN, WA_PHONE_ID
 log = logging.getLogger(__name__)
 
 
+def extraer_message_id(data: dict) -> str:
+    entry = data.get("entry", [{}])[0]
+    for change in entry.get("changes", []):
+        for msg in change.get("value", {}).get("messages", []):
+            mid = msg.get("id", "")
+            if mid:
+                return mid
+    return ""
+
+
 def extraer_mensaje(data: dict) -> tuple[str, str]:
     """Retorna (sender_id, texto) del payload de WhatsApp Business."""
     entry = data.get("entry", [{}])[0]
