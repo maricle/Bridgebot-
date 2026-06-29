@@ -1,0 +1,43 @@
+name: Tests
+
+on:
+  push:
+    branches:
+      - grupo-ideas-dev
+      - grupo-ideas
+      - main
+  pull_request:
+    branches:
+      - grupo-ideas
+      - main
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Install dependencies
+        run: |
+          pip install -r requirements.txt
+          pip install -r requirements-dev.txt
+
+      - name: Run tests
+        env:
+          META_VERIFY_TOKEN: test_verify_token
+          META_APP_SECRET: test_app_secret_32chars_padded00
+          IG_ACCESS_TOKEN: test_ig_token
+          WA_ACCESS_TOKEN: test_wa_token
+          WA_PHONE_ID: "123456789"
+          ANTHROPIC_API_KEY: test_anthropic_key
+          TURSO_URL: ""
+          TURSO_TOKEN: ""
+          DB_PATH: /tmp/bridgebot_test.db
+          MODO_DEV: "true"
+          SKIP_FIRMA: "true"
+        run: pytest -v --tb=short
