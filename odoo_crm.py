@@ -212,13 +212,13 @@ async def sincronizar_tareas() -> list[dict]:
             partner_data = await _execute_kw(
                 client, uid, "res.partner", "search_read",
                 [[["id", "in", partner_ids]]],
-                {"fields": ["id", "name", "phone", "mobile", "vat"]},
+                {"fields": ["id", "name", "phone", "vat"]},
             )
             partners: dict[int, dict] = {p["id"]: p for p in partner_data}
 
             # Log de muestra para verificar datos del partner
             muestra = [
-                {"id": p["id"], "name": p.get("name"), "phone": p.get("phone"), "mobile": p.get("mobile")}
+                {"id": p["id"], "name": p.get("name"), "phone": p.get("phone")}
                 for p in partner_data[:3]
             ]
             log.info("sincronizar_tareas: muestra de partners obtenidos: %s", muestra)
@@ -233,7 +233,7 @@ async def sincronizar_tareas() -> list[dict]:
             partner     = partners.get(p_ref[0] if isinstance(p_ref, list) else 0, {})
 
             telefono = "".join(
-                c for c in (partner.get("phone") or partner.get("mobile") or "") if c.isdigit()
+                c for c in (partner.get("phone") or "") if c.isdigit()
             )
             stage_name = t["stage_id"][1] if isinstance(t.get("stage_id"), list) else ""
 
