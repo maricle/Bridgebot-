@@ -156,18 +156,20 @@ async def sincronizar_tareas() -> list[dict]:
             if not uid:
                 return []
 
-            # Paso 1: tareas con orden de venta confirmada desde 2026
+            # Paso 1a: tareas con orden de venta desde 2026 (sin filtrar por estado aún)
             tasks_raw = await _execute_kw(
                 client, uid, "project.task", "search_read",
                 [[["sale_order_id", "!=", False],
-                  ["sale_order_id.state", "in", ["sale", "done"]],
                   ["create_date", ">=", "2026-01-01"]]],
                 {"fields": ["id", "name", "stage_id", "sale_order_id"], "limit": 1000},
             )
             if not tasks_raw:
+                log.info("sincronizar_tareas: sin tareas en Odoo desde 2026-01-01")
                 return []
 
-            # Paso 2: traer partner_id de cada sale.order (cliente real de la orden)
+            log.info("sincronizar_tareas: %d tareas encontradas antes de filtrar estado", len(tasks_raw))
+
+            # Paso 1b: traer sale.orders y filtrar solo confirmadas (sale/done) en Python
             sale_order_ids = list({
                 t["sale_order_id"][0]
                 for t in tasks_raw
@@ -176,9 +178,28 @@ async def sincronizar_tareas() -> list[dict]:
             so_data = await _execute_kw(
                 client, uid, "sale.order", "search_read",
                 [[["id", "in", sale_order_ids]]],
-                {"fields": ["id", "partner_id"]},
+                {"fields": ["id", "partner_id", "state"]},
             )
-            sale_orders: dict[int, dict] = {so["id"]: so for so in so_data}
+            sale_orders: dict[int, dict] = {
+                so["id"]: so for so in so_data
+                if so.get("state") in ("sale", "done")
+            }
+            log.info("sincronizar_tareas: %d órdenes confirmadas (de %d con tarea)", len(sale_orders), len(sale_order_ids))
+
+            # Solo mantener tareas con órdenes confirmadas
+            tasks_raw = [
+                t for t in tasks_raw
+                if isinstance(t.get("sale_order_id"), list)
+                and t["sale_order_id"][0] in sale_orders
+            ]
+            if not tasks_raw:
+                log.info("sincronizar_tareas: sin tareas con órdenes confirmadas")
+                return []
+
+            # Paso 2: verificar que las sale.orders traen partner_id
+            so_sin_partner = [so["id"] for so in sale_orders.values() if not isinstance(so.get("partner_id"), list)]
+            if so_sin_partner:
+                log.warning("sincronizar_tareas: %d órdenes sin partner_id: %s", len(so_sin_partner), so_sin_partner[:5])
 
             # Paso 3: traer teléfono, nombre y documento del partner
             partner_ids = list({
@@ -186,12 +207,21 @@ async def sincronizar_tareas() -> list[dict]:
                 for so in sale_orders.values()
                 if isinstance(so.get("partner_id"), list)
             })
+            log.info("sincronizar_tareas: buscando %d partners únicos", len(partner_ids))
+
             partner_data = await _execute_kw(
                 client, uid, "res.partner", "search_read",
                 [[["id", "in", partner_ids]]],
                 {"fields": ["id", "name", "phone", "mobile", "vat"]},
             )
             partners: dict[int, dict] = {p["id"]: p for p in partner_data}
+
+            # Log de muestra para verificar datos del partner
+            muestra = [
+                {"id": p["id"], "name": p.get("name"), "phone": p.get("phone"), "mobile": p.get("mobile")}
+                for p in partner_data[:3]
+            ]
+            log.info("sincronizar_tareas: muestra de partners obtenidos: %s", muestra)
 
         tareas = []
         for t in tasks_raw:
@@ -221,7 +251,8 @@ async def sincronizar_tareas() -> list[dict]:
                 "sale_order_name": sale_name,
             })
 
-        log.info("Odoo sync tareas: %d tareas obtenidas", len(tareas))
+        sin_tel = sum(1 for t in tareas if not t["telefono"])
+        log.info("Odoo sync tareas: %d obtenidas, %d sin teléfono", len(tareas), sin_tel)
         return tareas
     except Exception as e:
         log.error("Error sincronizando tareas de Odoo: %s", e)
