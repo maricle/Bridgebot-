@@ -524,6 +524,35 @@ async def buscar_tareas_por_telefono(telefono: str) -> list[dict]:
     )
 
 
+async def buscar_tareas_por_nro_orden(nro: str) -> list[dict]:
+    """Busca tareas por número de orden exacto o por coincidencia en task_name."""
+    if not nro:
+        return []
+    return await _query(
+        """SELECT task_name, nro_orden, stage, partner_name, sale_order_name
+           FROM tareas_odoo
+           WHERE nro_orden = ? OR task_name LIKE ?
+           ORDER BY odoo_id DESC
+           LIMIT 5""",
+        (nro, f"%{nro}%"),
+    )
+
+
+async def buscar_tareas_por_nombre(nombre: str) -> list[dict]:
+    """Busca tareas por nombre del cliente (búsqueda parcial, case-insensitive)."""
+    if not nombre or len(nombre.strip()) < 3:
+        return []
+    return await _query(
+        """SELECT task_name, nro_orden, stage, partner_name, sale_order_name
+           FROM tareas_odoo
+           WHERE LOWER(partner_name) LIKE LOWER(?)
+              OR LOWER(task_name)    LIKE LOWER(?)
+           ORDER BY odoo_id DESC
+           LIMIT 5""",
+        (f"%{nombre.strip()}%", f"%{nombre.strip()}%"),
+    )
+
+
 async def buscar_cliente_odoo_por_telefono(telefono: str) -> dict | None:
     """Busca por los últimos 10 dígitos (ignora prefijos de país y formato)."""
     digitos = "".join(c for c in telefono if c.isdigit())

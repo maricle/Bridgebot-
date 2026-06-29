@@ -1,6 +1,7 @@
 import asyncio
 import json
 import logging
+import re
 
 import httpx
 
@@ -60,10 +61,21 @@ _PALABRAS_ORDEN = {
     "puedo pasar", "puedo retirar", "está listo", "esta listo",
 }
 
+_NRO_ORDEN_RE = re.compile(r'\b(\d{4,6})\b')
+
 
 def _consulta_estado_orden(mensaje: str) -> bool:
     texto = mensaje.lower()
-    return any(p in texto for p in _PALABRAS_ORDEN)
+    if any(p in texto for p in _PALABRAS_ORDEN):
+        return True
+    # Mensaje que contiene solo un número de orden (ej: "09425")
+    return bool(_NRO_ORDEN_RE.search(texto))
+
+
+def _extraer_nro_orden(mensaje: str) -> str:
+    """Extrae el primer número de 4-6 dígitos del mensaje (posible nro de orden)."""
+    m = _NRO_ORDEN_RE.search(mensaje)
+    return m.group(1) if m else ""
 from db import (buscar_cliente_odoo_por_telefono, buscar_usuario_por_telefono,
                 cerrar_conversacion, guardar_datos_cliente, guardar_lead,
                 guardar_mensaje, obtener_archivos, obtener_canonical_id,
@@ -255,35 +267,52 @@ async def generar_respuesta(user_id: str, mensaje: str, canal: str = "instagram"
     system        = get_system_prompt(con_precios=con_precios, canal=canal, flujo=flujo)
 
     if consulta_orden:
-        from db import buscar_tareas_por_telefono
-        telefono_cliente = datos_cliente.get("telefono") or (canonical_id if canal == "whatsapp" else "")
-        if telefono_cliente:
-            tareas = await buscar_tareas_por_telefono(telefono_cliente)
+        from db import buscar_tareas_por_nombre, buscar_tareas_por_nro_orden, buscar_tareas_por_telefono
+        tareas = []
+
+        # 1. Prioridad: número de orden mencionado en el mensaje
+        nro_orden = _extraer_nro_orden(mensaje)
+        if nro_orden:
+            tareas = await buscar_tareas_por_nro_orden(nro_orden)
             if tareas:
-                lineas = []
-                for t in tareas:
-                    linea = f"- Pedido {t['nro_orden'] or t['task_name']} | Etapa: {t['stage']}"
-                    if t.get("sale_order_name"):
-                        linea += f" | Orden: {t['sale_order_name']}"
-                    lineas.append(linea)
-                system += "\n\n## Trabajos del cliente en producción (datos actualizados cada 30 min)\n"
-                system += "\n".join(lineas)
-                system += (
-                    "\n\nUsá estos datos para responder sobre el estado del trabajo. "
-                    "Si la etapa es 'Listo', confirmale que ya puede pasar a retirarlo. "
-                    "Si está en otra etapa, decile que está en producción y que te va a avisar cuando esté listo."
-                )
-                log.info("Estado de tareas inyectado para user=%s (%d tarea/s)", user_id, len(tareas))
-            else:
-                system += (
-                    "\n\n## Trabajos del cliente en producción\n"
-                    "No se encontraron trabajos registrados para este teléfono. "
-                    "Pedile el número de pedido (ej: 09374) o su nombre completo para buscarlo."
-                )
+                log.info("Tareas encontradas por nro_orden=%s para user=%s", nro_orden, user_id)
+
+        # 2. Fallback: teléfono del cliente
+        if not tareas:
+            telefono_cliente = datos_cliente.get("telefono") or (canonical_id if canal == "whatsapp" else "")
+            if telefono_cliente:
+                tareas = await buscar_tareas_por_telefono(telefono_cliente)
+                if tareas:
+                    log.info("Tareas encontradas por teléfono para user=%s", user_id)
+
+        # 3. Fallback: nombre del cliente registrado en la conversación
+        if not tareas and datos_cliente.get("nombre"):
+            tareas = await buscar_tareas_por_nombre(datos_cliente["nombre"])
+            if tareas:
+                log.info("Tareas encontradas por nombre '%s' para user=%s", datos_cliente["nombre"], user_id)
+
+        if tareas:
+            lineas = []
+            for t in tareas:
+                linea = f"- Pedido {t['nro_orden'] or t['task_name']} | Etapa: {t['stage']}"
+                if t.get("partner_name"):
+                    linea += f" | Cliente: {t['partner_name']}"
+                if t.get("sale_order_name"):
+                    linea += f" | Orden: {t['sale_order_name']}"
+                lineas.append(linea)
+            system += "\n\n## Trabajos del cliente en producción (datos actualizados cada 30 min)\n"
+            system += "\n".join(lineas)
+            system += (
+                "\n\nUsá estos datos para responder sobre el estado del trabajo. "
+                "Si la etapa es 'Listo', confirmale que ya puede pasar a retirarlo. "
+                "Si está en otra etapa, decile que está en producción y que te va a avisar cuando esté listo."
+            )
+            log.info("Estado de tareas inyectado para user=%s (%d tarea/s)", user_id, len(tareas))
         else:
             system += (
-                "\n\nEl cliente pregunta por el estado de su pedido pero no tenemos su teléfono. "
-                "Pedíselo para poder buscarlo en el sistema."
+                "\n\n## Trabajos del cliente en producción\n"
+                "No se encontraron trabajos para este cliente. "
+                "Pedile el número de pedido (ej: 09374) si no lo dio ya, o su nombre completo."
             )
 
     if es_nuevo:
