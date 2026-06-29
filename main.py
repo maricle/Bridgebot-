@@ -307,6 +307,16 @@ async def test_odoo():
     return {"ok": False, "mensaje": "Revisá los logs de Railway para ver el error exacto"}
 
 
+@app.get("/sync-tareas")
+async def sync_tareas_manual():
+    from odoo_crm import sincronizar_tareas
+    from db import upsert_tareas_odoo
+    tareas = await sincronizar_tareas()
+    if tareas:
+        await upsert_tareas_odoo(tareas)
+    return {"ok": True, "tareas_sincronizadas": len(tareas)}
+
+
 @app.get("/actualizar-precios")
 async def actualizar_precios():
     from precios import cargar as cargar_precios, obtener
