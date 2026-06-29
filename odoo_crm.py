@@ -139,6 +139,55 @@ async def _adjuntar_archivo(client: httpx.AsyncClient, uid: int, lead_id: int,
         log.error("Error adjuntando archivo al lead %s: %s", lead_id, e)
 
 
+_ESTADO_ORDEN = {
+    "draft":  "Presupuesto (sin confirmar)",
+    "sent":   "Presupuesto enviado al cliente",
+    "sale":   "Orden confirmada ✅",
+    "done":   "Completada — lista para retirar ✅",
+    "cancel": "Cancelada",
+}
+
+
+async def consultar_ordenes_por_telefono(telefono: str) -> list[dict]:
+    """Busca las últimas órdenes de venta en Odoo para el cliente con ese teléfono."""
+    if not ODOO_URL or not ODOO_API_KEY or not ODOO_LOGIN:
+        return []
+
+    digitos = "".join(c for c in telefono if c.isdigit())
+    sufijo  = digitos[-10:] if len(digitos) >= 10 else digitos
+    if not sufijo:
+        return []
+
+    try:
+        async with httpx.AsyncClient() as client:
+            uid = await _autenticar(client)
+            if not uid:
+                return []
+
+            partner_ids = await _execute_kw(
+                client, uid, "res.partner", "search",
+                [["|", ["phone", "like", sufijo], ["mobile", "like", sufijo]]],
+            )
+            if not partner_ids:
+                log.info("consultar_ordenes: sin partner para sufijo=%s", sufijo)
+                return []
+
+            ordenes = await _execute_kw(
+                client, uid, "sale.order", "search_read",
+                [[["partner_id", "in", partner_ids], ["state", "!=", "cancel"]]],
+                {
+                    "fields": ["name", "state", "amount_total", "date_order", "commitment_date"],
+                    "order": "date_order desc",
+                    "limit": 5,
+                },
+            )
+            log.info("consultar_ordenes: %d orden(es) para sufijo=%s", len(ordenes), sufijo)
+            return ordenes
+    except Exception as e:
+        log.error("Error consultando órdenes de Odoo: %s", e)
+        return []
+
+
 async def sincronizar_clientes() -> list[dict]:
     """Trae todos los res.partner con teléfono de Odoo para sync nocturno."""
     if not ODOO_URL or not ODOO_API_KEY or not ODOO_LOGIN:

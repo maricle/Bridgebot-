@@ -50,6 +50,20 @@ def _detectar_flujo(mensaje: str) -> str | None:
 def _pide_precio(mensaje: str) -> bool:
     texto = mensaje.lower()
     return any(p in texto for p in _PALABRAS_PRECIO)
+
+
+_PALABRAS_ORDEN = {
+    "pedido", "orden", "encargo", "estado", "listo", "retiro", "retirar",
+    "entrega", "entregan", "terminó", "termino", "terminaron",
+    "cuándo está", "cuando esta", "cuándo estará", "ya está", "ya esta",
+    "mi pedido", "mi orden", "cómo va", "como va", "avance",
+    "puedo pasar", "puedo retirar", "está listo", "esta listo",
+}
+
+
+def _consulta_estado_orden(mensaje: str) -> bool:
+    texto = mensaje.lower()
+    return any(p in texto for p in _PALABRAS_ORDEN)
 from db import (buscar_cliente_odoo_por_telefono, buscar_usuario_por_telefono,
                 cerrar_conversacion, guardar_datos_cliente, guardar_lead,
                 guardar_mensaje, obtener_archivos, obtener_canonical_id,
@@ -235,9 +249,48 @@ async def generar_respuesta(user_id: str, mensaje: str, canal: str = "instagram"
 
     messages = historial + [{"role": "user", "content": mensaje}]
 
-    con_precios = _pide_precio(mensaje)
-    flujo       = _detectar_flujo(mensaje)
-    system      = get_system_prompt(con_precios=con_precios, canal=canal, flujo=flujo)
+    con_precios   = _pide_precio(mensaje)
+    flujo         = _detectar_flujo(mensaje)
+    consulta_orden = _consulta_estado_orden(mensaje)
+    system        = get_system_prompt(con_precios=con_precios, canal=canal, flujo=flujo)
+
+    if consulta_orden:
+        from odoo_crm import _ESTADO_ORDEN, consultar_ordenes_por_telefono
+        telefono_cliente = datos_cliente.get("telefono") or (canonical_id if canal == "whatsapp" else "")
+        if telefono_cliente:
+            ordenes = await consultar_ordenes_por_telefono(telefono_cliente)
+            if ordenes:
+                lineas = []
+                for o in ordenes:
+                    estado = _ESTADO_ORDEN.get(o.get("state", ""), o.get("state", ""))
+                    fecha  = (o.get("date_order") or "")[:10]
+                    entrega = (o.get("commitment_date") or "")[:10] if o.get("commitment_date") else ""
+                    monto  = f"${o.get('amount_total', 0):,.0f}".replace(",", ".")
+                    linea  = f"- {o['name']} | {estado} | Total: {monto}"
+                    if fecha:
+                        linea += f" | Fecha: {fecha}"
+                    if entrega:
+                        linea += f" | Entrega estimada: {entrega}"
+                    lineas.append(linea)
+                system += "\n\n## Órdenes del cliente en Odoo (datos en tiempo real)\n"
+                system += "\n".join(lineas)
+                system += (
+                    "\n\nUsá estos datos para responder sobre el estado del pedido. "
+                    "Si el estado es 'Completada — lista para retirar ✅', confirmale que ya puede pasar a buscarlo. "
+                    "Si está 'Confirmada ✅', explicale que está en producción."
+                )
+                log.info("Estado de orden inyectado para user=%s (%d orden/es)", user_id, len(ordenes))
+            else:
+                system += (
+                    "\n\n## Órdenes del cliente en Odoo\n"
+                    "No se encontraron órdenes registradas para este cliente. "
+                    "Pedile el número de orden (ej: S00123) o que confirme su nombre completo para buscarlo."
+                )
+        else:
+            system += (
+                "\n\nEl cliente pregunta por el estado de su pedido pero no tenemos su teléfono registrado. "
+                "Pedíselo para poder buscarlo en el sistema."
+            )
 
     if es_nuevo:
         if datos_cliente.get("nombre"):
