@@ -157,6 +157,7 @@ async def sincronizar_tareas() -> list[dict]:
             tasks_raw = await _execute_kw(
                 client, uid, "project.task", "search_read",
                 [[["sale_order_id", "!=", False],
+                  ["sale_order_id.state", "in", ["sale", "done"]],
                   ["create_date", ">=", "2026-01-01"]]],
                 {
                     "fields": ["id", "name", "stage_id", "sale_order_id", "partner_id"],
