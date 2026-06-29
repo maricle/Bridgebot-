@@ -255,40 +255,34 @@ async def generar_respuesta(user_id: str, mensaje: str, canal: str = "instagram"
     system        = get_system_prompt(con_precios=con_precios, canal=canal, flujo=flujo)
 
     if consulta_orden:
-        from odoo_crm import _ESTADO_ORDEN, consultar_ordenes_por_telefono
+        from db import buscar_tareas_por_telefono
         telefono_cliente = datos_cliente.get("telefono") or (canonical_id if canal == "whatsapp" else "")
         if telefono_cliente:
-            ordenes = await consultar_ordenes_por_telefono(telefono_cliente)
-            if ordenes:
+            tareas = await buscar_tareas_por_telefono(telefono_cliente)
+            if tareas:
                 lineas = []
-                for o in ordenes:
-                    estado = _ESTADO_ORDEN.get(o.get("state", ""), o.get("state", ""))
-                    fecha  = (o.get("date_order") or "")[:10]
-                    entrega = (o.get("commitment_date") or "")[:10] if o.get("commitment_date") else ""
-                    monto  = f"${o.get('amount_total', 0):,.0f}".replace(",", ".")
-                    linea  = f"- {o['name']} | {estado} | Total: {monto}"
-                    if fecha:
-                        linea += f" | Fecha: {fecha}"
-                    if entrega:
-                        linea += f" | Entrega estimada: {entrega}"
+                for t in tareas:
+                    linea = f"- Pedido {t['nro_orden'] or t['task_name']} | Etapa: {t['stage']}"
+                    if t.get("sale_order_name"):
+                        linea += f" | Orden: {t['sale_order_name']}"
                     lineas.append(linea)
-                system += "\n\n## Órdenes del cliente en Odoo (datos en tiempo real)\n"
+                system += "\n\n## Trabajos del cliente en producción (datos actualizados cada 30 min)\n"
                 system += "\n".join(lineas)
                 system += (
-                    "\n\nUsá estos datos para responder sobre el estado del pedido. "
-                    "Si el estado es 'Completada — lista para retirar ✅', confirmale que ya puede pasar a buscarlo. "
-                    "Si está 'Confirmada ✅', explicale que está en producción."
+                    "\n\nUsá estos datos para responder sobre el estado del trabajo. "
+                    "Si la etapa es 'Listo', confirmale que ya puede pasar a retirarlo. "
+                    "Si está en otra etapa, decile que está en producción y que te va a avisar cuando esté listo."
                 )
-                log.info("Estado de orden inyectado para user=%s (%d orden/es)", user_id, len(ordenes))
+                log.info("Estado de tareas inyectado para user=%s (%d tarea/s)", user_id, len(tareas))
             else:
                 system += (
-                    "\n\n## Órdenes del cliente en Odoo\n"
-                    "No se encontraron órdenes registradas para este cliente. "
-                    "Pedile el número de orden (ej: S00123) o que confirme su nombre completo para buscarlo."
+                    "\n\n## Trabajos del cliente en producción\n"
+                    "No se encontraron trabajos registrados para este teléfono. "
+                    "Pedile el número de pedido (ej: 09374) o su nombre completo para buscarlo."
                 )
         else:
             system += (
-                "\n\nEl cliente pregunta por el estado de su pedido pero no tenemos su teléfono registrado. "
+                "\n\nEl cliente pregunta por el estado de su pedido pero no tenemos su teléfono. "
                 "Pedíselo para poder buscarlo en el sistema."
             )
 

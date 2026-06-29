@@ -139,52 +139,78 @@ async def _adjuntar_archivo(client: httpx.AsyncClient, uid: int, lead_id: int,
         log.error("Error adjuntando archivo al lead %s: %s", lead_id, e)
 
 
-_ESTADO_ORDEN = {
-    "draft":  "Presupuesto (sin confirmar)",
-    "sent":   "Presupuesto enviado al cliente",
-    "sale":   "Orden confirmada ✅",
-    "done":   "Completada — lista para retirar ✅",
-    "cancel": "Cancelada",
-}
-
-
-async def consultar_ordenes_por_telefono(telefono: str) -> list[dict]:
-    """Busca las últimas órdenes de venta en Odoo para el cliente con ese teléfono."""
+async def sincronizar_tareas() -> list[dict]:
+    """
+    Trae project.task de Odoo desde el 2026-01-01.
+    El nro de orden se extrae del nombre con el patrón '2026-09374 - CLIENTE'.
+    Se enriquece con teléfono, documento y nombre del partner de la orden de venta.
+    """
     if not ODOO_URL or not ODOO_API_KEY or not ODOO_LOGIN:
         return []
-
-    digitos = "".join(c for c in telefono if c.isdigit())
-    sufijo  = digitos[-10:] if len(digitos) >= 10 else digitos
-    if not sufijo:
-        return []
-
     try:
         async with httpx.AsyncClient() as client:
             uid = await _autenticar(client)
             if not uid:
                 return []
 
-            partner_ids = await _execute_kw(
-                client, uid, "res.partner", "search",
-                [["|", ["phone", "like", sufijo], ["mobile", "like", sufijo]]],
-            )
-            if not partner_ids:
-                log.info("consultar_ordenes: sin partner para sufijo=%s", sufijo)
-                return []
-
-            ordenes = await _execute_kw(
-                client, uid, "sale.order", "search_read",
-                [[["partner_id", "in", partner_ids], ["state", "!=", "cancel"]]],
+            # Tareas con orden de venta asociada, desde 2026
+            tasks_raw = await _execute_kw(
+                client, uid, "project.task", "search_read",
+                [[["sale_order_id", "!=", False],
+                  ["create_date", ">=", "2026-01-01"]]],
                 {
-                    "fields": ["name", "state", "amount_total", "date_order", "commitment_date"],
-                    "order": "date_order desc",
-                    "limit": 5,
+                    "fields": ["id", "name", "stage_id", "sale_order_id", "partner_id"],
+                    "limit": 1000,
                 },
             )
-            log.info("consultar_ordenes: %d orden(es) para sufijo=%s", len(ordenes), sufijo)
-            return ordenes
+            if not tasks_raw:
+                return []
+
+            # Recolectar partner_ids únicos para traer teléfono/documento en un solo call
+            partner_ids = list({
+                t["partner_id"][0]
+                for t in tasks_raw
+                if isinstance(t.get("partner_id"), list) and t["partner_id"]
+            })
+            partners: dict[int, dict] = {}
+            if partner_ids:
+                partner_data = await _execute_kw(
+                    client, uid, "res.partner", "search_read",
+                    [[["id", "in", partner_ids]]],
+                    {"fields": ["id", "name", "phone", "mobile", "vat"]},
+                )
+                partners = {p["id"]: p for p in partner_data}
+
+        tareas = []
+        for t in tasks_raw:
+            partner_id  = t["partner_id"][0] if isinstance(t.get("partner_id"), list) else 0
+            partner     = partners.get(partner_id, {})
+            telefono    = "".join(
+                c for c in (partner.get("phone") or partner.get("mobile") or "") if c.isdigit()
+            )
+            stage_name  = t["stage_id"][1] if isinstance(t.get("stage_id"), list) else ""
+            sale_order  = t.get("sale_order_id")
+            sale_name   = sale_order[1] if isinstance(sale_order, list) else ""
+
+            # Extraer nro de orden: "2026-09374 - TORRES GABRIELA" → "09374"
+            m = re.match(r"^\d{4}-(\d+)", t["name"])
+            nro_orden = m.group(1) if m else ""
+
+            tareas.append({
+                "odoo_id":        t["id"],
+                "task_name":      t["name"],
+                "nro_orden":      nro_orden,
+                "stage":          stage_name,
+                "partner_name":   partner.get("name") or "",
+                "telefono":       telefono,
+                "documento":      partner.get("vat") or "",
+                "sale_order_name": sale_name,
+            })
+
+        log.info("Odoo sync tareas: %d tareas obtenidas", len(tareas))
+        return tareas
     except Exception as e:
-        log.error("Error consultando órdenes de Odoo: %s", e)
+        log.error("Error sincronizando tareas de Odoo: %s", e)
         return []
 
 

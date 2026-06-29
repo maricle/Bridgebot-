@@ -52,6 +52,17 @@ _CREATE_TABLES = [
         odoo_lead_id  INTEGER DEFAULT 0,
         creado_en     TEXT DEFAULT (datetime('now'))
     )""",
+    """CREATE TABLE IF NOT EXISTS tareas_odoo (
+        odoo_id          INTEGER PRIMARY KEY,
+        task_name        TEXT NOT NULL,
+        nro_orden        TEXT DEFAULT '',
+        stage            TEXT DEFAULT '',
+        partner_name     TEXT DEFAULT '',
+        telefono         TEXT DEFAULT '',
+        documento        TEXT DEFAULT '',
+        sale_order_name  TEXT DEFAULT '',
+        synced_at        TEXT DEFAULT (datetime('now'))
+    )""",
 ]
 
 
@@ -467,6 +478,49 @@ async def marcar_mensaje_procesado(message_id: str):
     await _run(
         "INSERT OR IGNORE INTO mensajes_procesados (message_id) VALUES (?)",
         (message_id,),
+    )
+
+
+async def upsert_tareas_odoo(tareas: list[dict]):
+    """Bulk upsert de tareas desde Odoo."""
+    if not tareas:
+        return
+    statements = [
+        (
+            """INSERT INTO tareas_odoo
+                   (odoo_id, task_name, nro_orden, stage, partner_name,
+                    telefono, documento, sale_order_name, synced_at)
+               VALUES (?, ?, ?, ?, ?, ?, ?, ?, datetime('now'))
+               ON CONFLICT(odoo_id) DO UPDATE SET
+                   stage=excluded.stage,
+                   partner_name=excluded.partner_name,
+                   telefono=excluded.telefono,
+                   documento=excluded.documento,
+                   synced_at=excluded.synced_at""",
+            (
+                t["odoo_id"], t["task_name"], t["nro_orden"], t["stage"],
+                t["partner_name"], t["telefono"], t["documento"], t["sale_order_name"],
+            ),
+        )
+        for t in tareas
+    ]
+    await _batch_run(statements)
+    log.info("Sync tareas Odoo: %d actualizadas en DB local", len(tareas))
+
+
+async def buscar_tareas_por_telefono(telefono: str) -> list[dict]:
+    """Busca tareas del cliente por los últimos 10 dígitos del teléfono."""
+    digitos = "".join(c for c in telefono if c.isdigit())
+    sufijo  = digitos[-10:] if len(digitos) >= 10 else digitos
+    if not sufijo:
+        return []
+    return await _query(
+        """SELECT task_name, nro_orden, stage, partner_name, sale_order_name
+           FROM tareas_odoo
+           WHERE telefono LIKE ?
+           ORDER BY odoo_id DESC
+           LIMIT 5""",
+        (f"%{sufijo}",),
     )
 
 
