@@ -141,9 +141,12 @@ async def _adjuntar_archivo(client: httpx.AsyncClient, uid: int, lead_id: int,
 
 async def sincronizar_tareas() -> list[dict]:
     """
-    Trae project.task de Odoo desde el 2026-01-01.
+    Trae project.task de Odoo desde el 2026-01-01 con órdenes confirmadas.
     El nro de orden se extrae del nombre con el patrón '2026-09374 - CLIENTE'.
-    Se enriquece con teléfono, documento y nombre del partner de la orden de venta.
+
+    Ruta para obtener el cliente real:
+      project.task → sale_order_id → sale.order.partner_id → res.partner
+    (el partner_id del task suele estar vacío o ser un contacto secundario)
     """
     if not ODOO_URL or not ODOO_API_KEY or not ODOO_LOGIN:
         return []
@@ -153,58 +156,68 @@ async def sincronizar_tareas() -> list[dict]:
             if not uid:
                 return []
 
-            # Tareas con orden de venta asociada, desde 2026
+            # Paso 1: tareas con orden de venta confirmada desde 2026
             tasks_raw = await _execute_kw(
                 client, uid, "project.task", "search_read",
                 [[["sale_order_id", "!=", False],
                   ["sale_order_id.state", "in", ["sale", "done"]],
                   ["create_date", ">=", "2026-01-01"]]],
-                {
-                    "fields": ["id", "name", "stage_id", "sale_order_id", "partner_id"],
-                    "limit": 1000,
-                },
+                {"fields": ["id", "name", "stage_id", "sale_order_id"], "limit": 1000},
             )
             if not tasks_raw:
                 return []
 
-            # Recolectar partner_ids únicos para traer teléfono/documento en un solo call
-            partner_ids = list({
-                t["partner_id"][0]
+            # Paso 2: traer partner_id de cada sale.order (cliente real de la orden)
+            sale_order_ids = list({
+                t["sale_order_id"][0]
                 for t in tasks_raw
-                if isinstance(t.get("partner_id"), list) and t["partner_id"]
+                if isinstance(t.get("sale_order_id"), list)
             })
-            partners: dict[int, dict] = {}
-            if partner_ids:
-                partner_data = await _execute_kw(
-                    client, uid, "res.partner", "search_read",
-                    [[["id", "in", partner_ids]]],
-                    {"fields": ["id", "name", "phone", "mobile", "vat"]},
-                )
-                partners = {p["id"]: p for p in partner_data}
+            so_data = await _execute_kw(
+                client, uid, "sale.order", "search_read",
+                [[["id", "in", sale_order_ids]]],
+                {"fields": ["id", "partner_id"]},
+            )
+            sale_orders: dict[int, dict] = {so["id"]: so for so in so_data}
+
+            # Paso 3: traer teléfono, nombre y documento del partner
+            partner_ids = list({
+                so["partner_id"][0]
+                for so in sale_orders.values()
+                if isinstance(so.get("partner_id"), list)
+            })
+            partner_data = await _execute_kw(
+                client, uid, "res.partner", "search_read",
+                [[["id", "in", partner_ids]]],
+                {"fields": ["id", "name", "phone", "mobile", "vat"]},
+            )
+            partners: dict[int, dict] = {p["id"]: p for p in partner_data}
 
         tareas = []
         for t in tasks_raw:
-            partner_id  = t["partner_id"][0] if isinstance(t.get("partner_id"), list) else 0
-            partner     = partners.get(partner_id, {})
-            telefono    = "".join(
+            sale_ref    = t.get("sale_order_id")
+            so_id       = sale_ref[0] if isinstance(sale_ref, list) else 0
+            sale_name   = sale_ref[1] if isinstance(sale_ref, list) else ""
+            so          = sale_orders.get(so_id, {})
+            p_ref       = so.get("partner_id")
+            partner     = partners.get(p_ref[0] if isinstance(p_ref, list) else 0, {})
+
+            telefono = "".join(
                 c for c in (partner.get("phone") or partner.get("mobile") or "") if c.isdigit()
             )
-            stage_name  = t["stage_id"][1] if isinstance(t.get("stage_id"), list) else ""
-            sale_order  = t.get("sale_order_id")
-            sale_name   = sale_order[1] if isinstance(sale_order, list) else ""
+            stage_name = t["stage_id"][1] if isinstance(t.get("stage_id"), list) else ""
 
-            # Extraer nro de orden: "2026-09374 - TORRES GABRIELA" → "09374"
             m = re.match(r"^\d{4}-(\d+)", t["name"])
             nro_orden = m.group(1) if m else ""
 
             tareas.append({
-                "odoo_id":        t["id"],
-                "task_name":      t["name"],
-                "nro_orden":      nro_orden,
-                "stage":          stage_name,
-                "partner_name":   partner.get("name") or "",
-                "telefono":       telefono,
-                "documento":      partner.get("vat") or "",
+                "odoo_id":         t["id"],
+                "task_name":       t["name"],
+                "nro_orden":       nro_orden,
+                "stage":           stage_name,
+                "partner_name":    partner.get("name") or "",
+                "telefono":        telefono,
+                "documento":       partner.get("vat") or "",
                 "sale_order_name": sale_name,
             })
 
