@@ -5,7 +5,7 @@ import re
 
 import httpx
 
-from config import ANTHROPIC_API_KEY, get_system_prompt
+from config import ANTHROPIC_API_KEY, detectar_areas, get_system_prompt
 
 _PALABRAS_PRECIO = {
     # Consultas de precio explícitas
@@ -16,37 +16,6 @@ _PALABRAS_PRECIO = {
     "placa", "ranurada", "laqueado", "laqueo", "lacar", "barniz",
     "corte cnc", "mecanizado", "ranurado",
 }
-
-_PALABRAS_CARTELERIA = {
-    "lona", "vinilo", "banner", "cartel", "letras", "acrilico", "acrílico",
-    "corpórea", "corpóreas", "señaletica", "señalética", "plotter",
-    "pvc", "polifan", "roll up", "portabanner", "fly banner", "blue back",
-    "canvas", "tela flag", "gigantografia", "gigantografía",
-    "rotulo", "rótulo", "ploteo", "aviso", "mesh", "backlight", "blackout",
-    "fachada", "vidriera", "local", "cartelería",
-}
-
-_PALABRAS_GRAFICA = {
-    "impresion", "impresión", "copia", "copias", "folleto",
-    "tarjeta", "talonario", "recetario", "dtf", "adhesivo", "sello",
-    "plastificado", "encuadernacion", "encuadernación",
-    "fotocopia", "a4", "a3", "sa3", "super a3",
-    "afiche", "poster", "póster", "flyer", "folleto",
-}
-
-
-def _detectar_flujo(mensaje: str) -> str | None:
-    texto = mensaje.lower()
-    carteleria = any(p in texto for p in _PALABRAS_CARTELERIA)
-    grafica    = any(p in texto for p in _PALABRAS_GRAFICA)
-    if carteleria and grafica:
-        return "ambos"
-    if carteleria:
-        return "carteleria"
-    if grafica:
-        return "grafica"
-    return None
-
 
 def _pide_precio(mensaje: str) -> bool:
     texto = mensaje.lower()
@@ -262,9 +231,9 @@ async def generar_respuesta(user_id: str, mensaje: str, canal: str = "instagram"
     messages = historial + [{"role": "user", "content": mensaje}]
 
     con_precios   = _pide_precio(mensaje)
-    flujo         = _detectar_flujo(mensaje)
+    areas         = detectar_areas(mensaje)
     consulta_orden = _consulta_estado_orden(mensaje)
-    system        = get_system_prompt(con_precios=con_precios, canal=canal, flujo=flujo)
+    system        = get_system_prompt(con_precios=con_precios, canal=canal, areas_detectadas=areas)
 
     if consulta_orden:
         from db import buscar_tareas_por_nombre, buscar_tareas_por_nro_orden, buscar_tareas_por_telefono

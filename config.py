@@ -58,14 +58,60 @@ def _leer_conocimiento_base() -> str:
 
 _agente              = _leer_archivo("agente.md")
 _conocimiento        = _leer_conocimiento_base()
-_flujo_carteleria    = _leer_archivo("02_flujo_carteleria.md")
-_flujo_grafica       = _leer_archivo("03_flujo_grafica_impresiones.md")
+
+
+def _leer_areas() -> dict:
+    """Carga knowledge/areas.json — manifest de áreas/rubros del negocio.
+    Opcional: si no existe (ej. negocios sin flujos por área), queda vacío."""
+    import json
+    base_dir = os.path.dirname(os.path.abspath(__file__))
+    path = os.path.join(base_dir, "knowledge", "areas.json")
+    try:
+        with open(path, encoding="utf-8") as f:
+            return json.load(f)
+    except (FileNotFoundError, json.JSONDecodeError):
+        return {}
+
+
+_AREAS_CONFIG  = _leer_areas()
+_ARCHIVOS      = {a["id"]: a for a in _AREAS_CONFIG.get("archivos", [])}
+_AREAS         = {a["id"]: a for a in _AREAS_CONFIG.get("areas", [])}
+_FLUJO_CACHE: dict[str, str] = {}
+
+
+def _contenido_flujo(archivo_id: str) -> str:
+    if archivo_id not in _FLUJO_CACHE:
+        meta = _ARCHIVOS.get(archivo_id, {})
+        _FLUJO_CACHE[archivo_id] = _leer_archivo(meta["archivo"]) if meta.get("archivo") else ""
+    return _FLUJO_CACHE[archivo_id]
+
+
+def _tabla_areas_markdown() -> str:
+    areas = _AREAS_CONFIG.get("areas", [])
+    if not areas:
+        return ""
+    filas = "\n".join(f"| {', '.join(a['keywords'])} | **{a['nombre']}** |" for a in areas)
+    return (
+        "Si el cliente menciona alguna de estas palabras o conceptos, identificá el área "
+        "correspondiente antes de seguir preguntando:\n\n"
+        f"| Si menciona... | Área |\n|---|---|\n{filas}"
+    )
+
+
+def detectar_areas(mensaje: str) -> list[str]:
+    """Devuelve los ids de área cuyas keywords aparecen en el mensaje."""
+    texto = mensaje.lower()
+    return [
+        area_id for area_id, area in _AREAS.items()
+        if any(kw in texto for kw in area.get("keywords", []))
+    ]
+
 
 _PROMPT_BASE = os.environ.get("BOT_SYSTEM_PROMPT", "")
 
 
 def get_system_prompt(con_precios: bool = False, canal: str = "instagram",
-                      flujo: str | None = None) -> str:
+                      areas_detectadas: list[str] | None = None) -> str:
     from precios import obtener as obtener_precios
     base = _PROMPT_BASE or _agente
     base += f"\n\n## Canal actual: {canal.upper()}"
@@ -73,15 +119,26 @@ def get_system_prompt(con_precios: bool = False, canal: str = "instagram",
         base += f"\n\n## Información de la empresa:\n{_conocimiento}"
     if WA_NUMERO_SOPORTE:
         base += f"\n\n## Seguimiento de pedidos en curso:\nEnlace directo al equipo de producción: https://wa.me/{WA_NUMERO_SOPORTE}"
-    if flujo == "carteleria" and _flujo_carteleria:
-        base += f"\n\n## Flujo de atención — Cartelería y Gran Formato:\n{_flujo_carteleria}"
-    elif flujo == "grafica" and _flujo_grafica:
-        base += f"\n\n## Flujo de atención — Gráfica e Impresiones:\n{_flujo_grafica}"
-    elif flujo == "ambos":
-        if _flujo_carteleria:
-            base += f"\n\n## Flujo de atención — Cartelería y Gran Formato:\n{_flujo_carteleria}"
-        if _flujo_grafica:
-            base += f"\n\n## Flujo de atención — Gráfica e Impresiones:\n{_flujo_grafica}"
+
+    tabla_areas = _tabla_areas_markdown()
+    if tabla_areas:
+        base += f"\n\n## Áreas y flujos del negocio\n{tabla_areas}"
+
+    archivos_incluidos: set[str] = set()
+    for area_id in areas_detectadas or []:
+        area = _AREAS.get(area_id)
+        if not area:
+            continue
+        if area.get("instrucciones"):
+            base += f"\n\n## {area['nombre']} — instrucciones:\n{area['instrucciones']}"
+        archivo_id = area.get("archivo_id")
+        if archivo_id and archivo_id not in archivos_incluidos:
+            archivos_incluidos.add(archivo_id)
+            contenido = _contenido_flujo(archivo_id)
+            if contenido:
+                nombre = _ARCHIVOS.get(archivo_id, {}).get("nombre", archivo_id)
+                base += f"\n\n## Flujo de atención — {nombre}:\n{contenido}"
+
     if con_precios:
         precios = obtener_precios()
         if precios:
