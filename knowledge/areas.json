@@ -7,6 +7,12 @@
       "instrucciones": "1. Confirmá qué producto quiere.\n2. Informá el precio si lo tenés.\n3. Preguntá de a una: cantidad, medidas, terminación, retiro o envío."
     },
     {
+      "id": "placas_mdf",
+      "nombre": "Venta de placas MDF por unidad",
+      "keywords": ["mdf crudo", "mdf blanco", "fondo blanco", "placa cruda", "placas de mdf", "placa de mdf"],
+      "instrucciones": "Vendemos placas completas de MDF en medida estándar 1.83 x 2.75m: MDF Crudo 18mm, MDF Blanco 18mm, Fondo Blanco 5.5mm (ver lista de precios). Preguntá de a una: cuál de las tres, cantidad de placas, retiro o envío. Si pide 5 placas o más, avisale que el flete es gratis."
+    },
+    {
       "id": "corte_cnc",
       "nombre": "Corte CNC y fabricación a medida",
       "keywords": ["corte cnc", "cnc", "mecanizado", "ranurado", "ranurada", "placa", "fabricacion a medida", "fabricación a medida"],
