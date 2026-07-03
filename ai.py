@@ -5,7 +5,7 @@ import re
 
 import httpx
 
-from config import ANTHROPIC_API_KEY, detectar_areas, get_system_prompt
+from config import ANTHROPIC_API_KEY, area_bloquea_precios, detectar_areas, get_system_prompt
 
 _PALABRAS_PRECIO = {
     # Consultas de precio explícitas
@@ -230,8 +230,8 @@ async def generar_respuesta(user_id: str, mensaje: str, canal: str = "instagram"
 
     messages = historial + [{"role": "user", "content": mensaje}]
 
-    con_precios   = _pide_precio(mensaje)
     areas         = detectar_areas(mensaje)
+    con_precios   = _pide_precio(mensaje) and not area_bloquea_precios(areas)
     consulta_orden = _consulta_estado_orden(mensaje)
     system        = get_system_prompt(con_precios=con_precios, canal=canal, areas_detectadas=areas)
 

@@ -107,6 +107,11 @@ def detectar_areas(mensaje: str) -> list[str]:
     ]
 
 
+def area_bloquea_precios(areas_detectadas: list[str]) -> bool:
+    """True si alguna de las áreas detectadas está marcada sin_precio (trabajos a medida)."""
+    return any(_AREAS.get(area_id, {}).get("sin_precio") for area_id in areas_detectadas)
+
+
 _PROMPT_BASE = os.environ.get("BOT_SYSTEM_PROMPT", "")
 
 
