@@ -1,0 +1,22 @@
+{
+  "areas": [
+    {
+      "id": "productos_web",
+      "nombre": "Productos de catálogo (panel calado, decoración MDF, muebles)",
+      "keywords": ["panel calado", "medallero", "decoracion", "decoración", "casita de mascota", "casita para mascota", "mueble", "muebles"],
+      "instrucciones": "1. Confirmá qué producto quiere.\n2. Informá el precio si lo tenés.\n3. Preguntá de a una: cantidad, medidas, terminación, retiro o envío."
+    },
+    {
+      "id": "corte_cnc",
+      "nombre": "Corte CNC y fabricación a medida",
+      "keywords": ["corte cnc", "cnc", "mecanizado", "ranurado", "ranurada", "placa", "fabricacion a medida", "fabricación a medida"],
+      "instrucciones": "Preguntá de a una, en orden:\n1. ¿Qué tipo de pieza o producto necesitás?\n2. Material — por defecto MDF 18mm. Si no menciona otro, confirmá: \"¿Trabajamos con MDF 18mm?\"\n3. Medidas aproximadas\n4. Cantidad de unidades\n5. ¿Tenés archivo de corte? (DXF, SVG, AI, etc.)\n6. ¿Solo corte o también laqueado?\n7. ¿Para cuándo lo necesitás?"
+    },
+    {
+      "id": "laqueado",
+      "nombre": "Laqueado poliuretánico",
+      "keywords": ["laqueado", "laqueo", "lacar", "barniz"],
+      "instrucciones": "1. ¿Qué pieza es?\n2. Material\n3. Medidas\n4. Cantidad de piezas\n5. Terminación: mate, satinado o brillante\n6. Color"
+    }
+  ]
+}

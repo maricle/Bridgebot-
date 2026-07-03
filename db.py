@@ -18,6 +18,10 @@ _CREATE_TABLES = [
         email       TEXT,
         synced_at   TEXT DEFAULT (datetime('now'))
     )""",
+    """CREATE TABLE IF NOT EXISTS mensajes_procesados (
+        message_id   TEXT PRIMARY KEY,
+        procesado_en TEXT DEFAULT (datetime('now'))
+    )""",
     """CREATE TABLE IF NOT EXISTS archivos (
         id          INTEGER PRIMARY KEY AUTOINCREMENT,
         ig_user_id  TEXT NOT NULL,
@@ -48,6 +52,17 @@ _CREATE_TABLES = [
         odoo_lead_id  INTEGER DEFAULT 0,
         creado_en     TEXT DEFAULT (datetime('now'))
     )""",
+    """CREATE TABLE IF NOT EXISTS tareas_odoo (
+        odoo_id          INTEGER PRIMARY KEY,
+        task_name        TEXT NOT NULL,
+        nro_orden        TEXT DEFAULT '',
+        stage            TEXT DEFAULT '',
+        partner_name     TEXT DEFAULT '',
+        telefono         TEXT DEFAULT '',
+        documento        TEXT DEFAULT '',
+        sale_order_name  TEXT DEFAULT '',
+        synced_at        TEXT DEFAULT (datetime('now'))
+    )""",
 ]
 
 
@@ -61,7 +76,7 @@ def _arg(val):
     return {"type": "text", "value": str(val)}
 
 
-async def _turso(sql: str, args=()) -> dict:
+async def _turso(sql: str, args=(), silent: bool = False) -> dict:
     stmt = {"sql": sql}
     if args:
         stmt["args"] = [_arg(a) for a in args]
@@ -73,11 +88,13 @@ async def _turso(sql: str, args=()) -> dict:
             timeout=10,
         )
         if resp.status_code != 200:
-            log.error("Turso error %s — SQL: %s — Resp: %s", resp.status_code, sql[:80], resp.text[:200])
+            if not silent:
+                log.error("Turso error %s — SQL: %s — Resp: %s", resp.status_code, sql[:80], resp.text[:200])
             resp.raise_for_status()
     result = resp.json()["results"][0]
     if result.get("type") == "error":
-        log.error("Turso query error — SQL: %s — Error: %s", sql[:80], result.get("error"))
+        if not silent:
+            log.error("Turso query error — SQL: %s — Error: %s", sql[:80], result.get("error"))
         raise RuntimeError(result["error"]["message"])
     return result["response"]["result"]
 
@@ -177,21 +194,18 @@ async def init_db():
                     timeout=15,
                 )
                 resp.raise_for_status()
-            # Verificar errores individuales dentro del pipeline
-            for i, result in enumerate(resp.json().get("results", [])):
-                if result.get("type") == "error":
-                    log.error("Turso CREATE TABLE #%d error: %s", i, result.get("error"))
             log.info("Turso DB lista: %s", TURSO_URL)
         except Exception as e:
-            log.critical("ERROR conectando a Turso: %s — URL=%s", e, TURSO_URL)
+            log.critical("ERROR conectando a Turso: %s — la app puede fallar", e)
         for col_sql in [
             "ALTER TABLE usuarios ADD COLUMN cerrada      INTEGER DEFAULT 0",
             "ALTER TABLE usuarios ADD COLUMN nombre       TEXT    DEFAULT ''",
             "ALTER TABLE usuarios ADD COLUMN telefono     TEXT    DEFAULT ''",
             "ALTER TABLE usuarios ADD COLUMN canonical_id TEXT    DEFAULT ''",
+            "ALTER TABLE usuarios ADD COLUMN email        TEXT    DEFAULT ''",
         ]:
             try:
-                await _turso(col_sql)
+                await _turso(col_sql, silent=True)
             except Exception:
                 pass  # columna ya existe
     else:
@@ -203,6 +217,7 @@ async def init_db():
             "ALTER TABLE usuarios ADD COLUMN nombre       TEXT    DEFAULT ''",
             "ALTER TABLE usuarios ADD COLUMN telefono     TEXT    DEFAULT ''",
             "ALTER TABLE usuarios ADD COLUMN canonical_id TEXT    DEFAULT ''",
+            "ALTER TABLE usuarios ADD COLUMN email        TEXT    DEFAULT ''",
         ]:
             try:
                 with sqlite3.connect(DB_PATH) as con:
@@ -272,6 +287,10 @@ async def resetear_cerrada(user_id: str):
     await _run("UPDATE usuarios SET cerrada = 0 WHERE ig_user_id = ?", (user_id,))
 
 
+async def limpiar_historial(user_id: str):
+    await _run("DELETE FROM historial WHERE ig_user_id = ?", (user_id,))
+
+
 async def obtener_canonical_id(user_id: str) -> str:
     """Devuelve el canonical_id si el usuario está vinculado, sino el mismo user_id."""
     rows = await _query(
@@ -298,25 +317,29 @@ async def vincular_usuario(user_id: str, canonical_id: str):
     log.info("Usuario %s vinculado a canonical %s", user_id, canonical_id)
 
 
-async def guardar_datos_cliente(user_id: str, nombre: str = "", telefono: str = ""):
-    if nombre and telefono:
-        await _run(
-            "UPDATE usuarios SET nombre = ?, telefono = ? WHERE ig_user_id = ?",
-            (nombre, telefono, user_id),
-        )
-    elif nombre:
-        await _run("UPDATE usuarios SET nombre = ? WHERE ig_user_id = ?", (nombre, user_id))
-    elif telefono:
-        await _run("UPDATE usuarios SET telefono = ? WHERE ig_user_id = ?", (telefono, user_id))
+async def guardar_datos_cliente(user_id: str, nombre: str = "", telefono: str = "", email: str = ""):
+    sets, vals = [], []
+    if nombre:
+        sets.append("nombre = ?");   vals.append(nombre)
+    if telefono:
+        sets.append("telefono = ?"); vals.append(telefono)
+    if email:
+        sets.append("email = ?");    vals.append(email)
+    if sets:
+        await _run(f"UPDATE usuarios SET {', '.join(sets)} WHERE ig_user_id = ?", (*vals, user_id))
 
 
 async def obtener_datos_cliente(user_id: str) -> dict:
     rows = await _query(
-        "SELECT nombre, telefono FROM usuarios WHERE ig_user_id = ?", (user_id,)
+        "SELECT nombre, telefono, email FROM usuarios WHERE ig_user_id = ?", (user_id,)
     )
     if rows:
-        return {"nombre": rows[0].get("nombre") or "", "telefono": rows[0].get("telefono") or ""}
-    return {"nombre": "", "telefono": ""}
+        return {
+            "nombre":   rows[0].get("nombre")   or "",
+            "telefono": rows[0].get("telefono") or "",
+            "email":    rows[0].get("email")    or "",
+        }
+    return {"nombre": "", "telefono": "", "email": ""}
 
 
 async def conversacion_cerrada(user_id: str) -> bool:
@@ -353,6 +376,21 @@ async def obtener_conversacion(user_id: str) -> list:
     )
 
 
+async def buscar_en_historial(texto: str, limite: int = 50) -> list[dict]:
+    """Usuarios cuyas conversaciones contienen el texto buscado."""
+    return await _query(
+        """SELECT DISTINCT h.ig_user_id, u.nombre, u.telefono, u.canal,
+                  MAX(h.creado_en) as ultimo_mensaje
+           FROM historial h
+           LEFT JOIN usuarios u ON u.ig_user_id = h.ig_user_id
+           WHERE h.rol = 'user' AND LOWER(h.contenido) LIKE LOWER(?)
+           GROUP BY h.ig_user_id
+           ORDER BY ultimo_mensaje DESC
+           LIMIT ?""",
+        (f"%{texto}%", limite),
+    )
+
+
 async def guardar_archivo(user_id: str, canal: str, tipo: str,
                           media_id: str = "", url: str = ""):
     await _run(
@@ -365,6 +403,29 @@ async def obtener_archivos(user_id: str) -> list[dict]:
     return await _query(
         "SELECT tipo, media_id, url, creado_en FROM archivos WHERE ig_user_id = ? ORDER BY id ASC",
         (user_id,),
+    )
+
+
+async def obtener_archivo_por_id(archivo_id: int) -> dict | None:
+    rows = await _query(
+        """SELECT a.id, a.ig_user_id, a.canal, a.tipo, a.media_id, a.url, a.creado_en,
+                  u.nombre, u.telefono
+           FROM archivos a
+           LEFT JOIN usuarios u ON u.ig_user_id = a.ig_user_id
+           WHERE a.id = ?""",
+        (archivo_id,),
+    )
+    return rows[0] if rows else None
+
+
+async def listar_archivos(limite: int = 200) -> list[dict]:
+    return await _query(
+        """SELECT a.id, a.ig_user_id, a.canal, a.tipo, a.media_id, a.url, a.creado_en,
+                  u.nombre, u.telefono
+           FROM archivos a
+           LEFT JOIN usuarios u ON u.ig_user_id = a.ig_user_id
+           ORDER BY a.id DESC LIMIT ?""",
+        (limite,),
     )
 
 
@@ -396,6 +457,100 @@ async def upsert_clientes_odoo(clientes: list[dict]):
     ]
     await _batch_run(statements)
     log.info("Sync Odoo: %d clientes actualizados en DB local", len(clientes))
+
+
+async def buscar_cliente_odoo_por_id(odoo_id: int) -> dict | None:
+    rows = await _query(
+        "SELECT odoo_id, nombre, telefono, email FROM clientes_odoo WHERE odoo_id = ?",
+        (odoo_id,),
+    )
+    return rows[0] if rows else None
+
+
+async def mensaje_ya_procesado(message_id: str) -> bool:
+    rows = await _query(
+        "SELECT 1 FROM mensajes_procesados WHERE message_id = ?", (message_id,)
+    )
+    return bool(rows)
+
+
+async def marcar_mensaje_procesado(message_id: str):
+    await _run(
+        "INSERT OR IGNORE INTO mensajes_procesados (message_id) VALUES (?)",
+        (message_id,),
+    )
+
+
+async def upsert_tareas_odoo(tareas: list[dict]):
+    """Bulk upsert de tareas desde Odoo."""
+    if not tareas:
+        return
+    statements = [
+        (
+            """INSERT INTO tareas_odoo
+                   (odoo_id, task_name, nro_orden, stage, partner_name,
+                    telefono, documento, sale_order_name, synced_at)
+               VALUES (?, ?, ?, ?, ?, ?, ?, ?, datetime('now'))
+               ON CONFLICT(odoo_id) DO UPDATE SET
+                   stage=excluded.stage,
+                   partner_name=excluded.partner_name,
+                   telefono=excluded.telefono,
+                   documento=excluded.documento,
+                   synced_at=excluded.synced_at""",
+            (
+                t["odoo_id"], t["task_name"], t["nro_orden"], t["stage"],
+                t["partner_name"], t["telefono"], t["documento"], t["sale_order_name"],
+            ),
+        )
+        for t in tareas
+    ]
+    await _batch_run(statements)
+    log.info("Sync tareas Odoo: %d actualizadas en DB local", len(tareas))
+
+
+async def buscar_tareas_por_telefono(telefono: str) -> list[dict]:
+    """Busca tareas del cliente por los últimos 10 dígitos del teléfono."""
+    digitos = "".join(c for c in telefono if c.isdigit())
+    sufijo  = digitos[-10:] if len(digitos) >= 10 else digitos
+    if not sufijo:
+        return []
+    return await _query(
+        """SELECT task_name, nro_orden, stage, partner_name, sale_order_name
+           FROM tareas_odoo
+           WHERE telefono LIKE ?
+           ORDER BY odoo_id DESC
+           LIMIT 5""",
+        (f"%{sufijo}",),
+    )
+
+
+async def buscar_tareas_por_nro_orden(nro: str) -> list[dict]:
+    """Busca tareas por número de orden exacto o por coincidencia en task_name."""
+    if not nro:
+        return []
+    return await _query(
+        """SELECT task_name, nro_orden, stage, partner_name, sale_order_name
+           FROM tareas_odoo
+           WHERE nro_orden = ? OR task_name LIKE ?
+           ORDER BY odoo_id DESC
+           LIMIT 5""",
+        (nro, f"%{nro}%"),
+    )
+
+
+async def buscar_tareas_por_nombre(nombre: str) -> list[dict]:
+    """Busca tareas por nombre del cliente (búsqueda parcial, case-insensitive)."""
+    if not nombre or len(nombre.strip()) < 3:
+        return []
+    return await _query(
+        """SELECT task_name, nro_orden, stage, partner_name, sale_order_name
+           FROM tareas_odoo
+           WHERE LOWER(partner_name) LIKE LOWER(?)
+              OR LOWER(task_name)    LIKE LOWER(?)
+           ORDER BY odoo_id DESC
+           LIMIT 5""",
+        (f"%{nombre.strip()}%", f"%{nombre.strip()}%"),
+    )
 
 
 async def buscar_cliente_odoo_por_telefono(telefono: str) -> dict | None:

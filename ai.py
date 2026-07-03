@@ -1,55 +1,42 @@
 import asyncio
 import json
 import logging
+import re
 
 import httpx
 
-from config import ANTHROPIC_API_KEY, get_system_prompt
-
-_PALABRAS_PRECIO = {
-    # Consultas de precio explícitas
-    "precio", "precios", "presupuesto", "costo", "costos",
-    "cuanto", "cuánto", "vale", "sale", "tarifa", "valor",
-    "cotizacion", "cotización", "plata", "pesos", "cobran", "cobras",
-    # Clever CNC
-    "placa", "ranurada", "laqueado", "laqueo", "lacar", "barniz",
-    "corte cnc", "mecanizado", "ranurado",
-}
-
-_PALABRAS_CARTELERIA = {
-    "lona", "vinilo", "banner", "cartel", "letras", "acrilico", "acrílico",
-    "corpórea", "corpóreas", "señaletica", "señalética", "plotter",
-    "pvc", "polifan", "roll up", "portabanner", "fly banner", "blue back",
-    "canvas", "tela flag", "gigantografia", "gigantografía",
-    "rotulo", "rótulo", "ploteo", "aviso", "mesh", "backlight", "blackout",
-    "fachada", "vidriera", "local", "cartelería",
-}
-
-_PALABRAS_GRAFICA = {
-    "impresion", "impresión", "copia", "copias", "folleto",
-    "tarjeta", "talonario", "recetario", "dtf", "adhesivo", "sello",
-    "plastificado", "encuadernacion", "encuadernación",
-    "fotocopia", "a4", "a3", "sa3", "super a3",
-    "afiche", "poster", "póster", "flyer", "folleto",
-}
-
-
-def _detectar_flujo(mensaje: str) -> str | None:
-    texto = mensaje.lower()
-    carteleria = any(p in texto for p in _PALABRAS_CARTELERIA)
-    grafica    = any(p in texto for p in _PALABRAS_GRAFICA)
-    if carteleria and grafica:
-        return "ambos"
-    if carteleria:
-        return "carteleria"
-    if grafica:
-        return "grafica"
-    return None
+from config import (ANTHROPIC_API_KEY, PALABRAS_PRECIO, area_bloquea_precios,
+                    detectar_areas, get_system_prompt, resolver_destino_odoo)
 
 
 def _pide_precio(mensaje: str) -> bool:
     texto = mensaje.lower()
-    return any(p in texto for p in _PALABRAS_PRECIO)
+    return any(p in texto for p in PALABRAS_PRECIO)
+
+
+_PALABRAS_ORDEN = {
+    "pedido", "orden", "encargo", "estado", "listo", "retiro", "retirar",
+    "entrega", "entregan", "terminó", "termino", "terminaron",
+    "cuándo está", "cuando esta", "cuándo estará", "ya está", "ya esta",
+    "mi pedido", "mi orden", "cómo va", "como va", "avance",
+    "puedo pasar", "puedo retirar", "está listo", "esta listo",
+}
+
+_NRO_ORDEN_RE = re.compile(r'\b(\d{4,6})\b')
+
+
+def _consulta_estado_orden(mensaje: str) -> bool:
+    texto = mensaje.lower()
+    if any(p in texto for p in _PALABRAS_ORDEN):
+        return True
+    # Mensaje que contiene solo un número de orden (ej: "09425")
+    return bool(_NRO_ORDEN_RE.search(texto))
+
+
+def _extraer_nro_orden(mensaje: str) -> str:
+    """Extrae el primer número de 4-6 dígitos del mensaje (posible nro de orden)."""
+    m = _NRO_ORDEN_RE.search(mensaje)
+    return m.group(1) if m else ""
 from db import (buscar_cliente_odoo_por_telefono, buscar_usuario_por_telefono,
                 cerrar_conversacion, guardar_datos_cliente, guardar_lead,
                 guardar_mensaje, obtener_archivos, obtener_canonical_id,
@@ -65,8 +52,9 @@ Respondé SOLO con un JSON válido con este formato exacto (sin explicaciones):
   "tiene_lead": true/false,
   "nombre": "nombre y apellido completo del cliente o null",
   "telefono": "teléfono o WhatsApp del cliente o null",
+  "email": "email del cliente o null",
   "descripcion": "resumen breve del pedido en 1-2 oraciones o null",
-  "destino": "carteleria" o "oficina"
+  "requiere_diseno": true/false
 }
 
 "tiene_lead" debe ser true SOLO si se cumplen LAS TRES condiciones:
@@ -74,12 +62,10 @@ Respondé SOLO con un JSON válido con este formato exacto (sin explicaciones):
 2. Se conoce el teléfono o WhatsApp del cliente (puede venir de los datos conocidos al inicio)
 3. El cliente tiene un pedido o consulta concreta (producto o proyecto definido)
 
-Si hay datos conocidos marcados con [Nombre conocido] o [Teléfono conocido], usarlos por defecto.
-EXCEPCIÓN: si el cliente declaró explícitamente datos DISTINTOS en la conversación (por ejemplo "mi nombre es X" o "el teléfono es Y" o "no, usá el..."), usar los datos que el cliente proporcionó — no los datos previos.
+Si hay datos conocidos marcados con [Nombre conocido], [Teléfono conocido] o [Email conocido], usarlos por defecto.
+EXCEPCIÓN: si el cliente declaró explícitamente datos DISTINTOS en la conversación, usar los datos que el cliente proporcionó.
 
-"destino" debe ser:
-- "carteleria" si el pedido involucra letras corpóreas, señalética corpórea, acrílico con iluminación LED, estructuras o carteles de fachada tridimensionales
-- "oficina" en todos los demás casos: impresiones, lonas, vinilos, gran formato, DTF, copias, talonarios, tarjetas, sellos, adhesivos, banners, PVC, polifan
+"requiere_diseno" debe ser true si el cliente pidió diseño desde cero, hablar con el diseñador, hacer un logo, imagen, ilustración o arte que no tiene preparado.
 """
 
 
@@ -171,6 +157,7 @@ async def _intentar_crear_lead(user_id: str, canal: str, historial: list,
 
     nombre      = datos.get("nombre") or ""
     telefono    = datos.get("telefono") or ""
+    email       = datos.get("email") or ""
     descripcion = datos.get("descripcion") or ""
 
     # En WhatsApp el user_id ES el número de teléfono
@@ -185,20 +172,32 @@ async def _intentar_crear_lead(user_id: str, canal: str, historial: list,
             canonical_id = wa_id
             log.info("IG user %s vinculado a WA user %s", user_id, wa_id)
 
-    destino  = datos.get("destino") or "oficina"
-    archivos = await obtener_archivos(canonical_id)
-    from odoo_crm import crear_lead
+    texto_conversacion = " ".join(m["content"] for m in historial if m.get("role") == "user")
+    destino         = resolver_destino_odoo(detectar_areas(texto_conversacion))
+    requiere_diseno = datos.get("requiere_diseno", False)
+    archivos        = await obtener_archivos(canonical_id)
+
+    # Buscar partner Odoo por teléfono para vincular al lead y actualizar email
+    odoo_match    = await buscar_cliente_odoo_por_telefono(telefono or canonical_id)
+    partner_odoo  = int(odoo_match["odoo_id"]) if odoo_match and odoo_match.get("odoo_id") else None
+
+    from odoo_crm import crear_lead, actualizar_partner
     odoo_id = await crear_lead(
         nombre, telefono, descripcion, canal, user_id,
-        historial=historial, archivos=archivos, destino=destino,
+        historial=historial, archivos=archivos, destino=destino, email=email,
+        requiere_diseno=requiere_diseno, partner_id=partner_odoo,
     ) or 0
     await guardar_lead(canonical_id, descripcion, canal, odoo_id)
-    await guardar_datos_cliente(canonical_id, nombre=nombre, telefono=telefono)
-    await cerrar_conversacion(canonical_id)
-    log.info("Lead creado y conversación cerrada — canonical=%s odoo_id=%s", canonical_id, odoo_id)
+    await guardar_datos_cliente(canonical_id, nombre=nombre, telefono=telefono, email=email)
+
+    if email and partner_odoo:
+        await actualizar_partner(partner_odoo, email=email)
+
+    log.info("Lead creado en Odoo — canonical=%s odoo_id=%s", canonical_id, odoo_id)
 
 
-async def generar_respuesta(user_id: str, mensaje: str, canal: str = "instagram") -> str:
+async def generar_respuesta(user_id: str, mensaje: str, canal: str = "instagram",
+                            es_nuevo: bool = False) -> str:
     if not ANTHROPIC_API_KEY:
         return "El servicio de IA no está configurado. Te contactamos a la brevedad."
 
@@ -210,28 +209,89 @@ async def generar_respuesta(user_id: str, mensaje: str, canal: str = "instagram"
     if canal == "whatsapp" and not datos_cliente.get("nombre"):
         odoo_match = await buscar_cliente_odoo_por_telefono(canonical_id)
         if odoo_match and odoo_match.get("nombre"):
-            await guardar_datos_cliente(canonical_id, nombre=odoo_match["nombre"])
+            email_odoo = odoo_match.get("email") or ""
+            await guardar_datos_cliente(canonical_id, nombre=odoo_match["nombre"], email=email_odoo)
             datos_cliente["nombre"] = odoo_match["nombre"]
+            if email_odoo:
+                datos_cliente["email"] = email_odoo
             log.info("Cliente WA %s identificado desde Odoo: %s", canonical_id, odoo_match["nombre"])
 
     messages = historial + [{"role": "user", "content": mensaje}]
 
-    con_precios = _pide_precio(mensaje)
-    flujo       = _detectar_flujo(mensaje)
-    system      = get_system_prompt(con_precios=con_precios, canal=canal, flujo=flujo)
+    areas         = detectar_areas(mensaje)
+    con_precios   = _pide_precio(mensaje) and not area_bloquea_precios(areas)
+    consulta_orden = _consulta_estado_orden(mensaje)
+    system        = get_system_prompt(con_precios=con_precios, canal=canal, areas_detectadas=areas)
 
-    if datos_cliente.get("nombre") or datos_cliente.get("telefono"):
+    if consulta_orden:
+        from db import buscar_tareas_por_nombre, buscar_tareas_por_nro_orden, buscar_tareas_por_telefono
+        tareas = []
+
+        # 1. Prioridad: número de orden mencionado en el mensaje
+        nro_orden = _extraer_nro_orden(mensaje)
+        if nro_orden:
+            tareas = await buscar_tareas_por_nro_orden(nro_orden)
+            if tareas:
+                log.info("Tareas encontradas por nro_orden=%s para user=%s", nro_orden, user_id)
+
+        # 2. Fallback: teléfono del cliente
+        if not tareas:
+            telefono_cliente = datos_cliente.get("telefono") or (canonical_id if canal == "whatsapp" else "")
+            if telefono_cliente:
+                tareas = await buscar_tareas_por_telefono(telefono_cliente)
+                if tareas:
+                    log.info("Tareas encontradas por teléfono para user=%s", user_id)
+
+        # 3. Fallback: nombre del cliente registrado en la conversación
+        if not tareas and datos_cliente.get("nombre"):
+            tareas = await buscar_tareas_por_nombre(datos_cliente["nombre"])
+            if tareas:
+                log.info("Tareas encontradas por nombre '%s' para user=%s", datos_cliente["nombre"], user_id)
+
+        if tareas:
+            lineas = []
+            for t in tareas:
+                linea = f"- Pedido {t['nro_orden'] or t['task_name']} | Etapa: {t['stage']}"
+                if t.get("partner_name"):
+                    linea += f" | Cliente: {t['partner_name']}"
+                if t.get("sale_order_name"):
+                    linea += f" | Orden: {t['sale_order_name']}"
+                lineas.append(linea)
+            system += "\n\n## Trabajos del cliente en producción (datos actualizados cada 30 min)\n"
+            system += "\n".join(lineas)
+            system += (
+                "\n\nUsá estos datos para responder sobre el estado del trabajo. "
+                "Si la etapa es 'Listo', confirmale que ya puede pasar a retirarlo. "
+                "Si está en otra etapa, decile que está en producción y que te va a avisar cuando esté listo."
+            )
+            log.info("Estado de tareas inyectado para user=%s (%d tarea/s)", user_id, len(tareas))
+        else:
+            system += (
+                "\n\n## Trabajos del cliente en producción\n"
+                "No se encontraron trabajos para este cliente. "
+                "Pedile el número de pedido (ej: 09374) si no lo dio ya, o su nombre completo."
+            )
+
+    if es_nuevo:
+        if datos_cliente.get("nombre"):
+            system += f"\n\nEs el primer mensaje de este cliente — saludalo por su nombre ({datos_cliente['nombre'].split()[0]}), presentate y respondé su consulta en el mismo mensaje."
+        else:
+            system += "\n\nEs el primer mensaje de este cliente — saludalo cálidamente, presentate y respondé su consulta en el mismo mensaje."
+
+    tiene_datos = datos_cliente.get("nombre") or datos_cliente.get("telefono")
+    if tiene_datos:
         system += "\n\n## Datos conocidos del cliente"
         if datos_cliente.get("nombre"):
             system += f"\nNombre: {datos_cliente['nombre']}"
         if datos_cliente.get("telefono"):
             system += f"\nTeléfono/WA: {datos_cliente['telefono']}"
+        if datos_cliente.get("email"):
+            system += f"\nEmail: {datos_cliente['email']}"
+        else:
+            system += "\nEmail: (no registrado — pedirlo en algún momento de la conversación)"
         system += (
-            "\nAntes de generar un nuevo pedido, confirmá con el cliente: "
-            "\"Voy a generar el pedido a nombre de [nombre], ¿uso el mismo número de teléfono?\"\n"
-            "- Si confirma: registrá el pedido con esos datos.\n"
-            "- Si corrige el nombre o el teléfono: aceptá el dato nuevo, repetilo para confirmar "
-            "y recién entonces registrá el pedido con la información actualizada."
+            "\nDatos de contacto ya conocidos — NO volver a pedirlos a menos que el cliente los corrija."
+            "\nSi el cliente corrige algún dato, aceptá el nuevo, confirmalo y registrá el pedido con la info actualizada."
         )
 
     respuesta = await _llamar_claude(messages=messages, system=system)
@@ -245,6 +305,12 @@ async def generar_respuesta(user_id: str, mensaje: str, canal: str = "instagram"
     await guardar_mensaje(canonical_id, "assistant", respuesta)
 
     asyncio.create_task(_intentar_crear_lead(user_id, canal, messages, canonical_id))
+
+    # Cierra la conversación solo cuando el bot envió el mensaje de confirmación de lead
+    _FRASE_CIERRE = "ya registré tu consulta"
+    if _FRASE_CIERRE in respuesta.lower():
+        asyncio.create_task(cerrar_conversacion(canonical_id))
+        log.info("Conversación cerrada por frase de cierre — canonical=%s", canonical_id)
 
     log.info("Claude [%s] user=%s: %s...", canal, user_id, respuesta[:80])
     return respuesta

@@ -1,0 +1,117 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>BridgeBot Dashboard — Grupo Ideas</title>
+<link rel="stylesheet" href="/static/dashboard.css">
+<script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
+</head>
+<body>
+
+<header>
+  <h1>BridgeBot &mdash; Grupo Ideas</h1>
+  <div class="tabs">
+    <button class="tab-btn active" onclick="switchTab('analytics')">Analytics</button>
+    <button class="tab-btn" onclick="switchTab('historial')">Historial</button>
+    <button class="tab-btn" onclick="switchTab('archivos')">Archivos</button>
+  </div>
+  <div class="filtro" id="filtro-analytics">
+    <label>Desde</label>
+    <input type="date" id="desde">
+    <label>Hasta</label>
+    <input type="date" id="hasta">
+    <button onclick="cargarAnalytics()">Aplicar</button>
+  </div>
+</header>
+
+<main>
+
+  <!-- ── ANALYTICS ── -->
+  <div class="tab-panel active" id="panel-analytics">
+    <p class="estado" id="estado-analytics">Cargando...</p>
+    <div class="cards">
+      <div class="card">
+        <div class="label">Clientes atendidos</div>
+        <div class="value" id="c-total">—</div>
+        <div class="sub" id="c-periodo">en el período</div>
+      </div>
+      <div class="card green">
+        <div class="label">Consultaron precio</div>
+        <div class="value" id="c-pct">—</div>
+        <div class="sub" id="c-precio-n">— clientes</div>
+      </div>
+      <div class="card amber">
+        <div class="label">Leads generados</div>
+        <div class="value" id="c-leads">—</div>
+        <div class="sub" id="c-conv">conversión sobre atendidos</div>
+      </div>
+    </div>
+    <div class="charts">
+      <div class="chart-box">
+        <h2>Clientes por día</h2>
+        <canvas id="chartDia"></canvas>
+      </div>
+      <div class="chart-box">
+        <h2>Productos más consultados</h2>
+        <canvas id="chartProd"></canvas>
+      </div>
+    </div>
+  </div>
+
+  <!-- ── HISTORIAL ── -->
+  <div class="tab-panel" id="panel-historial">
+    <div class="search-bar">
+      <div class="mode-toggle">
+        <button class="mode-btn active" id="mode-tel" onclick="setMode('tel')">Por teléfono</button>
+        <button class="mode-btn" id="mode-txt" onclick="setMode('txt')">Por contenido</button>
+      </div>
+      <input type="tel"  id="input-telefono" placeholder="Número de teléfono (ej: 3794000000)"
+             onkeydown="if(event.key==='Enter') buscarHistorial()">
+      <input type="text" id="input-contenido" placeholder="Buscar en conversaciones (ej: estado de pedido)"
+             style="display:none"
+             onkeydown="if(event.key==='Enter') buscarContenido()">
+      <button class="btn-primary" onclick="ejecutarBusqueda()">Buscar</button>
+    </div>
+    <p class="estado" id="estado-historial"></p>
+    <div id="lista-resultados" style="display:none"></div>
+    <div id="resultado-historial"></div>
+    <div class="reply-box" id="reply-box" style="display:none">
+      <textarea id="reply-texto" placeholder="Escribir respuesta por WhatsApp..."
+                rows="1" oninput="autoResize(this)"
+                onkeydown="if(event.key==='Enter'&&!event.shiftKey){event.preventDefault();enviarRespuesta()}"></textarea>
+      <button class="btn-send" id="btn-send" onclick="enviarRespuesta()">Enviar</button>
+    </div>
+  </div>
+
+  <!-- ── ARCHIVOS ── -->
+  <div class="tab-panel" id="panel-archivos">
+    <div class="search-bar" style="margin-bottom:1rem">
+      <input type="tel" id="filtro-tel-archivos" placeholder="Filtrar por teléfono..."
+             oninput="filtrarArchivos()">
+    </div>
+    <p class="estado" id="estado-archivos">Cargando archivos...</p>
+    <div class="tabla-wrap">
+      <table>
+        <thead>
+          <tr>
+            <th>Fecha</th>
+            <th>Canal</th>
+            <th>Tipo</th>
+            <th>Cliente</th>
+            <th>Teléfono / ID</th>
+            <th>Acción</th>
+          </tr>
+        </thead>
+        <tbody id="tabla-archivos">
+          <tr><td colspan="6" class="empty">Cargando...</td></tr>
+        </tbody>
+      </table>
+    </div>
+  </div>
+
+</main>
+
+<script src="/static/dashboard.js"></script>
+</body>
+</html>

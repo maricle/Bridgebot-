@@ -12,7 +12,7 @@ _contenido = ""
 def _leer_local() -> str:
     base_dir = os.path.dirname(os.path.abspath(__file__))
     try:
-        with open(os.path.join(base_dir, "knowledge", "precios.txt"), encoding="utf-8") as f:
+        with open(os.path.join(base_dir, "knowledge", "precios.md"), encoding="utf-8") as f:
             return f.read().strip()
     except FileNotFoundError:
         return ""
