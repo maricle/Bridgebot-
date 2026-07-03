@@ -33,6 +33,7 @@ EXCLUIR_BOT    = {u.strip() for u in os.environ.get("EXCLUIR_BOT", "").split(","
 MODO_DEV = os.environ.get("MODO_DEV", "false").lower() == "true"
 
 SALUDO = os.environ.get("SALUDO_BIENVENIDA", "¡Hola! 👋 ¿En qué te puedo ayudar hoy?")
+BOT_NOMBRE = os.environ.get("BOT_NOMBRE", "Asistente")
 
 def _leer_archivo(nombre: str) -> str:
     base_dir = os.path.dirname(os.path.abspath(__file__))
@@ -98,6 +99,19 @@ def _tabla_areas_markdown() -> str:
     )
 
 
+PALABRAS_PRECIO = {
+    "precio", "precios", "presupuesto", "costo", "costos",
+    "cuanto", "cuánto", "vale", "sale", "tarifa", "valor",
+    "cotizacion", "cotización", "plata", "pesos", "cobran", "cobras",
+}
+
+
+def areas_categorias() -> dict[str, list[str]]:
+    """Devuelve {nombre_area: keywords} de todas las áreas de knowledge/areas.json.
+    Útil para agrupar consultas por rubro (ej. analytics) sin listas hardcodeadas."""
+    return {a["nombre"]: a.get("keywords", []) for a in _AREAS.values()}
+
+
 def detectar_areas(mensaje: str) -> list[str]:
     """Devuelve los ids de área cuyas keywords aparecen en el mensaje."""
     texto = mensaje.lower()
@@ -110,6 +124,16 @@ def detectar_areas(mensaje: str) -> list[str]:
 def area_bloquea_precios(areas_detectadas: list[str]) -> bool:
     """True si alguna de las áreas detectadas está marcada sin_precio (trabajos a medida)."""
     return any(_AREAS.get(area_id, {}).get("sin_precio") for area_id in areas_detectadas)
+
+
+def resolver_destino_odoo(areas_detectadas: list[str]) -> str:
+    """Devuelve el destino Odoo (clave de ODOO_DESTINOS) de la primera área detectada
+    que tenga 'odoo_destino' configurado en areas.json. Si ninguna aplica, "default"."""
+    for area_id in areas_detectadas:
+        destino = _AREAS.get(area_id, {}).get("odoo_destino")
+        if destino:
+            return destino
+    return "default"
 
 
 _PROMPT_BASE = os.environ.get("BOT_SYSTEM_PROMPT", "")
@@ -156,10 +180,16 @@ ODOO_API_KEY = os.environ.get("ODOO_API_KEY", "")
 ODOO_DB      = os.environ.get("ODOO_DB", "")
 ODOO_LOGIN   = os.environ.get("ODOO_LOGIN", "")
 
-# Routing multi-company (Grupo Ideas)
-# Formato: "company_id:user_id" — ej. "3:5" → company_id=3, user_id=5
-ODOO_DESTINO_CARTELERIA = os.environ.get("ODOO_DESTINO_CARTELERIA", "")
-ODOO_DESTINO_OFICINA    = os.environ.get("ODOO_DESTINO_OFICINA", "")
+# Routing multi-company genérico: cualquier negocio con más de una empresa/responsable
+# en Odoo puede definir env vars ODOO_DESTINO_<CLAVE>="company_id:user_id" (ej.
+# ODOO_DESTINO_OFICINA="5:10") y referenciar <clave> desde el campo "odoo_destino" de
+# cada área en knowledge/areas.json. Si no hay ninguna definida, se usa la empresa/
+# usuario por defecto (ver _resolver_destino en odoo_crm.py).
+ODOO_DESTINOS = {
+    k[len("ODOO_DESTINO_"):].lower(): v
+    for k, v in os.environ.items()
+    if k.startswith("ODOO_DESTINO_") and v
+}
 
 # Usuarios adicionales a notificar al crear un lead (IDs separados por coma, ej. "3,7")
 ODOO_NOTIFICAR_USUARIOS = [

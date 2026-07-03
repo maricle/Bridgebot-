@@ -5,21 +5,13 @@ import re
 
 import httpx
 
-from config import ANTHROPIC_API_KEY, area_bloquea_precios, detectar_areas, get_system_prompt
+from config import (ANTHROPIC_API_KEY, PALABRAS_PRECIO, area_bloquea_precios,
+                    detectar_areas, get_system_prompt, resolver_destino_odoo)
 
-_PALABRAS_PRECIO = {
-    # Consultas de precio explícitas
-    "precio", "precios", "presupuesto", "costo", "costos",
-    "cuanto", "cuánto", "vale", "sale", "tarifa", "valor",
-    "cotizacion", "cotización", "plata", "pesos", "cobran", "cobras",
-    # Clever CNC
-    "placa", "ranurada", "laqueado", "laqueo", "lacar", "barniz",
-    "corte cnc", "mecanizado", "ranurado",
-}
 
 def _pide_precio(mensaje: str) -> bool:
     texto = mensaje.lower()
-    return any(p in texto for p in _PALABRAS_PRECIO)
+    return any(p in texto for p in PALABRAS_PRECIO)
 
 
 _PALABRAS_ORDEN = {
@@ -62,7 +54,6 @@ Respondé SOLO con un JSON válido con este formato exacto (sin explicaciones):
   "telefono": "teléfono o WhatsApp del cliente o null",
   "email": "email del cliente o null",
   "descripcion": "resumen breve del pedido en 1-2 oraciones o null",
-  "destino": "carteleria" o "oficina",
   "requiere_diseno": true/false
 }
 
@@ -73,10 +64,6 @@ Respondé SOLO con un JSON válido con este formato exacto (sin explicaciones):
 
 Si hay datos conocidos marcados con [Nombre conocido], [Teléfono conocido] o [Email conocido], usarlos por defecto.
 EXCEPCIÓN: si el cliente declaró explícitamente datos DISTINTOS en la conversación, usar los datos que el cliente proporcionó.
-
-"destino" debe ser:
-- "carteleria" si el pedido involucra letras corpóreas, señalética corpórea, acrílico con iluminación LED, estructuras o carteles de fachada tridimensionales
-- "oficina" en todos los demás casos: impresiones, lonas, vinilos, gran formato, DTF, copias, talonarios, tarjetas, sellos, adhesivos, banners, PVC, polifan
 
 "requiere_diseno" debe ser true si el cliente pidió diseño desde cero, hablar con el diseñador, hacer un logo, imagen, ilustración o arte que no tiene preparado.
 """
@@ -185,7 +172,8 @@ async def _intentar_crear_lead(user_id: str, canal: str, historial: list,
             canonical_id = wa_id
             log.info("IG user %s vinculado a WA user %s", user_id, wa_id)
 
-    destino         = datos.get("destino") or "oficina"
+    texto_conversacion = " ".join(m["content"] for m in historial if m.get("role") == "user")
+    destino         = resolver_destino_odoo(detectar_areas(texto_conversacion))
     requiere_diseno = datos.get("requiere_diseno", False)
     archivos        = await obtener_archivos(canonical_id)
 

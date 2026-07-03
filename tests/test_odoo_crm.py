@@ -139,7 +139,7 @@ def test_transcripcion_contiene_cliente_y_bot():
     ]
     html = _transcripcion_html(historial)
     assert "Cliente:" in html
-    assert "VictorIA:" in html
+    assert "Asistente:" in html
 
 
 def test_transcripcion_newlines_a_br():

@@ -184,16 +184,22 @@ Esto permite **identificar clientes de WhatsApp por teléfono** antes de que esc
 
 ---
 
-## Routing multi-company (Grupo Ideas)
+## Routing multi-company (genérico)
 
-Los leads se dirigen a distintos equipos según el tipo de trabajo:
+Cualquier negocio con más de una empresa/responsable en Odoo puede definir tantos
+destinos como necesite con variables `ODOO_DESTINO_<CLAVE>="company_id:user_id"`.
+Cada área de `knowledge/areas.json` referencia una clave vía su campo opcional
+`"odoo_destino"`. Ejemplo (config real de un negocio, no committeada):
 
-| Variable | Destino | Tipo de trabajo |
+| Variable | Destino | Área que la referencia (`areas.json`) |
 |---|---|---|
-| `ODOO_DESTINO_CARTELERIA=4:8` | Company 4 / Usuario 8 | Letras corpóreas, acrílico, LED |
-| `ODOO_DESTINO_OFICINA=5:10` | Company 5 / Usuario 10 | Impresiones, lonas, DTF, vinilos |
+| `ODOO_DESTINO_CARTELERIA=4:8` | Company 4 / Usuario 8 | área con `"odoo_destino": "carteleria"` |
+| `ODOO_DESTINO_OFICINA=5:10` | Company 5 / Usuario 10 | área con `"odoo_destino": "oficina"` |
 
-El destino lo determina Claude al analizar la conversación en el `EXTRACCION_PROMPT`.
+El destino se resuelve determinísticamente detectando las áreas mencionadas en la
+conversación (`config.detectar_areas`) y mapeándolas a su `odoo_destino`
+(`config.resolver_destino_odoo`). Si ningún área matchea o no tiene `odoo_destino`,
+se usa `ODOO_DESTINO_DEFAULT` si existe, o la empresa/usuario por defecto de Odoo.
 
 ---
 
@@ -241,8 +247,8 @@ Los archivos de knowledge están marcados con `--skip-worktree` para mantener ve
 | `ODOO_API_KEY` | API key de Odoo |
 | `ODOO_DB` | Nombre de la base de datos Odoo |
 | `ODOO_LOGIN` | Email del usuario Odoo |
-| `ODOO_DESTINO_CARTELERIA` | Routing cartelería: `company_id:user_id` |
-| `ODOO_DESTINO_OFICINA` | Routing oficina: `company_id:user_id` |
+| `ODOO_DESTINO_<CLAVE>` | Opcional — solo para negocios con más de una empresa en Odoo (ej. Grupo Ideas). `company_id:user_id` por cada `odoo_destino` usado en `areas.json`. Si el negocio tiene una sola empresa, no hace falta definir ninguna. |
+| `BOT_NOMBRE` | Nombre del bot mostrado en la transcripción del lead en Odoo (default: "Asistente") |
 | `ODOO_NOTIFICAR_USUARIOS` | IDs de usuarios Odoo a notificar al crear lead (ej: `3,7`) |
 | `TURSO_URL` | URL de la base de datos Turso |
 | `TURSO_TOKEN` | Token de autenticación Turso |

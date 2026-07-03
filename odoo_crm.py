@@ -4,9 +4,8 @@ import re
 
 import httpx
 
-from config import (MODO_DEV, ODOO_API_KEY, ODOO_DB, ODOO_DESTINO_CARTELERIA,
-                    ODOO_DESTINO_OFICINA, ODOO_LOGIN, ODOO_NOTIFICAR_USUARIOS,
-                    ODOO_URL)
+from config import (BOT_NOMBRE, MODO_DEV, ODOO_API_KEY, ODOO_DB, ODOO_DESTINOS,
+                    ODOO_LOGIN, ODOO_NOTIFICAR_USUARIOS, ODOO_URL)
 
 log = logging.getLogger(__name__)
 
@@ -85,7 +84,7 @@ def _transcripcion_html(historial: list) -> str:
     import html as _html
     partes = ["<hr/><p><b>TRANSCRIPCIÓN DEL CHAT</b></p>"]
     for m in historial:
-        label = "<b>Cliente:</b>" if m["role"] == "user" else "<b>VictorIA:</b>"
+        label = "<b>Cliente:</b>" if m["role"] == "user" else f"<b>{BOT_NOMBRE}:</b>"
         texto = _html.escape(m["content"]).replace("\n", "<br/>")
         partes.append(f"<p>{label} {texto}</p>")
     return "".join(partes)
@@ -314,8 +313,8 @@ async def actualizar_partner(odoo_id: int, email: str = "") -> bool:
 
 
 def _resolver_destino(destino: str) -> tuple[int | None, int | None]:
-    """Retorna (company_id, responsable_id) según el destino configurado."""
-    raw = ODOO_DESTINO_CARTELERIA if destino == "carteleria" else ODOO_DESTINO_OFICINA
+    """Retorna (company_id, responsable_id) según el destino (área/servicio) configurado."""
+    raw = ODOO_DESTINOS.get(destino) or ODOO_DESTINOS.get("default")
     if not raw:
         return None, 1
     partes = raw.split(":")
@@ -328,7 +327,7 @@ async def crear_lead(nombre_cliente: str, telefono: str, descripcion: str,
                      canal: str = "instagram", user_id: str = "",
                      historial: list | None = None,
                      archivos: list | None = None,
-                     destino: str = "oficina",
+                     destino: str = "default",
                      email: str = "",
                      requiere_diseno: bool = False,
                      partner_id: int | None = None) -> int | None:
