@@ -24,7 +24,8 @@ from db import (buscar_cliente_odoo_por_id, buscar_cliente_odoo_por_telefono,
                 limpiar_historial, marcar_mensaje_procesado, marcar_saludado,
                 mensaje_ya_procesado, obtener_archivo_por_id, obtener_canonical_id,
                 obtener_conversacion, obtener_datos_cliente, obtener_leads,
-                obtener_usuarios, resetear_cerrada, resetear_usuario, stats)
+                obtener_usuarios, pausar_usuario, reanudar_usuario, resetear_cerrada,
+                resetear_usuario, stats, usuario_pausado)
 from ai import generar_respuesta
 
 logging.basicConfig(level=logging.INFO, format="%(levelname)s: %(message)s")
@@ -151,6 +152,9 @@ async def procesar_instagram(data: dict):
         if sender_id in EXCLUIR_BOT:
             log.info("IG: atendido por humano %s, ignorando.", sender_id)
             return
+        if await usuario_pausado(sender_id):
+            log.info("IG: bot pausado para %s, ignorando.", sender_id)
+            return
 
         # Deduplicación (antes del lock, después de filtros)
         message_id = instagram.extraer_message_id(data)
@@ -181,7 +185,8 @@ async def procesar_instagram(data: dict):
                 if nuevo:
                     await marcar_saludado(sender_id, "instagram")
                 respuesta = await generar_respuesta(sender_id, mensaje, "instagram", es_nuevo=(cerrada or nuevo))
-                await instagram.enviar_mensaje(client, sender_id, respuesta)
+                if respuesta:
+                    await instagram.enviar_mensaje(client, sender_id, respuesta)
 
     except Exception as e:
         log.exception("IG error procesando evento: %s", e)
@@ -238,6 +243,9 @@ async def procesar_whatsapp(data: dict):
         if sender_id in EXCLUIR_BOT:
             log.info("WA: atendido por humano %s, ignorando.", sender_id)
             return
+        if await usuario_pausado(sender_id):
+            log.info("WA: bot pausado para %s, ignorando.", sender_id)
+            return
 
         async with _user_locks[sender_id]:
             cerrada = await conversacion_cerrada(sender_id)
@@ -258,7 +266,8 @@ async def procesar_whatsapp(data: dict):
                                                     email=odoo_match.get("email") or "")
                         log.info("WA: cliente Odoo identificado para %s (%s)", sender_id, odoo_match["nombre"])
                 respuesta = await generar_respuesta(sender_id, mensaje, "whatsapp", es_nuevo=(cerrada or nuevo))
-                await whatsapp.enviar_mensaje(client, sender_id, respuesta)
+                if respuesta:
+                    await whatsapp.enviar_mensaje(client, sender_id, respuesta)
 
     except Exception as e:
         log.exception("WA error procesando evento: %s", e)
@@ -390,7 +399,8 @@ async def ver_usuarios():
 async def ver_conversacion(user_id: str):
     datos = await obtener_datos_cliente(user_id)
     historial = await obtener_conversacion(user_id)
-    return {"user_id": user_id, "cliente": datos, "historial": historial}
+    pausado = await usuario_pausado(user_id)
+    return {"user_id": user_id, "cliente": datos, "historial": historial, "pausado": pausado}
 
 
 @app.get("/buscar-contenido")
@@ -408,7 +418,8 @@ async def buscar_por_telefono(telefono: str):
         return {"encontrado": False, "user_id": None, "cliente": {}, "historial": []}
     datos = await obtener_datos_cliente(user_id)
     historial = await obtener_conversacion(user_id)
-    return {"encontrado": True, "user_id": user_id, "cliente": datos, "historial": historial}
+    pausado = await usuario_pausado(user_id)
+    return {"encontrado": True, "user_id": user_id, "cliente": datos, "historial": historial, "pausado": pausado}
 
 
 async def _verificar_api_key(request: Request):
@@ -614,3 +625,15 @@ async def descargar_archivo(archivo_id: int):
 async def borrar_usuario(user_id: str):
     await resetear_usuario(user_id)
     return {"ok": True, "mensaje": f"Usuario {user_id} reseteado"}
+
+
+@app.post("/usuario/{user_id}/pausar")
+async def pausar_usuario_endpoint(user_id: str):
+    await pausar_usuario(user_id)
+    return {"ok": True, "mensaje": f"Bot pausado para {user_id}"}
+
+
+@app.post("/usuario/{user_id}/reanudar")
+async def reanudar_usuario_endpoint(user_id: str):
+    await reanudar_usuario(user_id)
+    return {"ok": True, "mensaje": f"Bot reanudado para {user_id}"}

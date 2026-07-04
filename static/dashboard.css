@@ -166,6 +166,21 @@ main { padding: 1.5rem 2rem; max-width: 1300px; margin: 0 auto; }
 .cliente-info .ci-label { color: var(--muted); font-size: .75rem; text-transform: uppercase; letter-spacing: .05em; }
 .cliente-info .ci-val { font-weight: 600; margin-top: .1rem; }
 
+.btn-toggle-pausa {
+  margin-left: auto;
+  align-self: center;
+  border: none;
+  border-radius: 8px;
+  padding: .5rem 1rem;
+  font-weight: 700;
+  font-size: .82rem;
+  cursor: pointer;
+  white-space: nowrap;
+}
+.btn-toggle-pausa.activo   { background: #fee2e2; color: #b91c1c; }
+.btn-toggle-pausa.pausado  { background: #dcfce7; color: #15803d; }
+.btn-toggle-pausa:hover { opacity: .85; }
+
 .conversacion {
   background: var(--card);
   border-radius: 12px;

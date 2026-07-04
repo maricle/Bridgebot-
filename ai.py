@@ -196,8 +196,11 @@ async def _intentar_crear_lead(user_id: str, canal: str, historial: list,
     log.info("Lead creado en Odoo — canonical=%s odoo_id=%s", canonical_id, odoo_id)
 
 
+_NO_RESPONDER = "NO_RESPONDER"
+
+
 async def generar_respuesta(user_id: str, mensaje: str, canal: str = "instagram",
-                            es_nuevo: bool = False) -> str:
+                            es_nuevo: bool = False) -> str | None:
     if not ANTHROPIC_API_KEY:
         return "El servicio de IA no está configurado. Te contactamos a la brevedad."
 
@@ -300,6 +303,11 @@ async def generar_respuesta(user_id: str, mensaje: str, canal: str = "instagram"
 
     if not respuesta:
         return "Tardamos un poco más de lo normal. ¿Podés repetir tu consulta?"
+
+    if respuesta.strip() == _NO_RESPONDER:
+        await guardar_mensaje(canonical_id, "user", mensaje)
+        log.info("Sin respuesta automática (saludo/emoji/agradecimiento sin pedido) — canonical=%s", canonical_id)
+        return None
 
     await guardar_mensaje(canonical_id, "user", mensaje)
     await guardar_mensaje(canonical_id, "assistant", respuesta)

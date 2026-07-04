@@ -1,6 +1,7 @@
 let chartDia = null, chartProd = null;
 let _modoHistorial = 'tel';
 let _currentUserId = null;
+let _currentPausado = false;
 let _archivosData  = [];
 
 // ── UTILS ─────────────────────────────────────────────────────────────────────
@@ -32,26 +33,46 @@ function renderConversacion(historial) {
       <div class="msg-meta">${m.creado_en || ''}</div>
     </div>`).join('');
 }
-function renderClienteInfo(c, userId) {
+function renderClienteInfo(c, userId, pausado) {
   return `
     <div class="cliente-info">
       <div class="ci-item"><div class="ci-label">Nombre</div><div class="ci-val">${escHtml(c.nombre || '—')}</div></div>
       <div class="ci-item"><div class="ci-label">Teléfono</div><div class="ci-val">${escHtml(c.telefono || userId)}</div></div>
       <div class="ci-item"><div class="ci-label">Email</div><div class="ci-val">${escHtml(c.email || '—')}</div></div>
       <div class="ci-item"><div class="ci-label">Canal</div><div class="ci-val">${escHtml(c.canal || '—')}</div></div>
+      <button class="btn-toggle-pausa ${pausado ? 'pausado' : 'activo'}" id="btn-pausa" onclick="togglePausa()">
+        ${pausado ? '▶ Reanudar bot' : '⏸ Pausar bot'}
+      </button>
     </div>`;
 }
 function mostrarConversacion(d) {
   _currentUserId = d.user_id;
+  _currentPausado = !!d.pausado;
   const c = d.cliente;
   document.getElementById('resultado-historial').innerHTML =
-    renderClienteInfo(c, d.user_id) +
+    renderClienteInfo(c, d.user_id, _currentPausado) +
     `<div class="conversacion" id="conv-box">${renderConversacion(d.historial)}</div>`;
   const box = document.getElementById('conv-box');
   if (box) box.scrollTop = box.scrollHeight;
   document.getElementById('reply-box').style.display =
     esWhatsApp(c.canal, d.user_id) ? 'flex' : 'none';
   document.getElementById('reply-texto').value = '';
+}
+async function togglePausa() {
+  if (!_currentUserId) return;
+  const accion = _currentPausado ? 'reanudar' : 'pausar';
+  try {
+    const res = await fetch(`/usuario/${encodeURIComponent(_currentUserId)}/${accion}`, { method: 'POST' });
+    if (!res.ok) throw new Error(`HTTP ${res.status}`);
+    _currentPausado = !_currentPausado;
+    const btn = document.getElementById('btn-pausa');
+    if (btn) {
+      btn.className = `btn-toggle-pausa ${_currentPausado ? 'pausado' : 'activo'}`;
+      btn.textContent = _currentPausado ? '▶ Reanudar bot' : '⏸ Pausar bot';
+    }
+  } catch (e) {
+    alert('No se pudo cambiar el estado del bot: ' + e.message);
+  }
 }
 
 // ── TABS ──────────────────────────────────────────────────────────────────────
