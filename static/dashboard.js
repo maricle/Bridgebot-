@@ -1,7 +1,10 @@
 let chartDia = null, chartProd = null;
 let _modoHistorial = 'tel';
 let _currentUserId = null;
+let _currentPausado = false;
 let _archivosData  = [];
+let _recientesOffset = 0;
+const _RECIENTES_LIMITE = 20;
 
 // ── UTILS ─────────────────────────────────────────────────────────────────────
 function hoy() { return new Date().toISOString().split('T')[0]; }
@@ -32,26 +35,46 @@ function renderConversacion(historial) {
       <div class="msg-meta">${m.creado_en || ''}</div>
     </div>`).join('');
 }
-function renderClienteInfo(c, userId) {
+function renderClienteInfo(c, userId, pausado) {
   return `
     <div class="cliente-info">
       <div class="ci-item"><div class="ci-label">Nombre</div><div class="ci-val">${escHtml(c.nombre || '—')}</div></div>
       <div class="ci-item"><div class="ci-label">Teléfono</div><div class="ci-val">${escHtml(c.telefono || userId)}</div></div>
       <div class="ci-item"><div class="ci-label">Email</div><div class="ci-val">${escHtml(c.email || '—')}</div></div>
       <div class="ci-item"><div class="ci-label">Canal</div><div class="ci-val">${escHtml(c.canal || '—')}</div></div>
+      <button class="btn-toggle-pausa ${pausado ? 'pausado' : 'activo'}" id="btn-pausa" onclick="togglePausa()">
+        ${pausado ? '▶ Reanudar bot' : '⏸ Pausar bot'}
+      </button>
     </div>`;
 }
 function mostrarConversacion(d) {
   _currentUserId = d.user_id;
+  _currentPausado = !!d.pausado;
   const c = d.cliente;
   document.getElementById('resultado-historial').innerHTML =
-    renderClienteInfo(c, d.user_id) +
+    renderClienteInfo(c, d.user_id, _currentPausado) +
     `<div class="conversacion" id="conv-box">${renderConversacion(d.historial)}</div>`;
   const box = document.getElementById('conv-box');
   if (box) box.scrollTop = box.scrollHeight;
   document.getElementById('reply-box').style.display =
     esWhatsApp(c.canal, d.user_id) ? 'flex' : 'none';
   document.getElementById('reply-texto').value = '';
+}
+async function togglePausa() {
+  if (!_currentUserId) return;
+  const accion = _currentPausado ? 'reanudar' : 'pausar';
+  try {
+    const res = await fetch(`/usuario/${encodeURIComponent(_currentUserId)}/${accion}`, { method: 'POST' });
+    if (!res.ok) throw new Error(`HTTP ${res.status}`);
+    _currentPausado = !_currentPausado;
+    const btn = document.getElementById('btn-pausa');
+    if (btn) {
+      btn.className = `btn-toggle-pausa ${_currentPausado ? 'pausado' : 'activo'}`;
+      btn.textContent = _currentPausado ? '▶ Reanudar bot' : '⏸ Pausar bot';
+    }
+  } catch (e) {
+    alert('No se pudo cambiar el estado del bot: ' + e.message);
+  }
 }
 
 // ── TABS ──────────────────────────────────────────────────────────────────────
@@ -62,6 +85,7 @@ function switchTab(tab) {
   event.target.classList.add('active');
   document.getElementById('filtro-analytics').style.display = tab === 'analytics' ? 'flex' : 'none';
   if (tab === 'archivos') cargarArchivos();
+  if (tab === 'historial') cargarHistorialReciente(true);
 }
 
 // ── ANALYTICS ─────────────────────────────────────────────────────────────────
@@ -140,6 +164,8 @@ async function buscarHistorial() {
   const estado = document.getElementById('estado-historial');
   estado.textContent = 'Buscando...';
   document.getElementById('resultado-historial').innerHTML = '';
+  document.getElementById('lista-recientes').innerHTML = '';
+  document.getElementById('btn-cargar-mas').style.display = 'none';
   try {
     const res = await fetch(`/buscar?telefono=${encodeURIComponent(tel)}`);
     const d = await res.json();
@@ -154,6 +180,18 @@ async function buscarHistorial() {
   }
 }
 
+function renderResultadoCard(r) {
+  return `
+    <div class="resultado-card" onclick='cargarConversacionDirecta(${JSON.stringify(r.ig_user_id)})'>
+      ${canalBadge(r.canal)}
+      <div>
+        <div class="rc-nombre">${escHtml(r.nombre || '—')}</div>
+        <div class="rc-tel">${escHtml(r.telefono || r.ig_user_id || '—')}</div>
+      </div>
+      <div class="rc-fecha">${(r.ultimo_mensaje || '').substring(0, 16).replace('T', ' ')}</div>
+    </div>`;
+}
+
 async function buscarContenido() {
   const q = document.getElementById('input-contenido').value.trim();
   if (!q) return;
@@ -161,6 +199,8 @@ async function buscarContenido() {
   const lista  = document.getElementById('lista-resultados');
   estado.textContent = 'Buscando...';
   lista.style.display = 'none';
+  document.getElementById('lista-recientes').innerHTML = '';
+  document.getElementById('btn-cargar-mas').style.display = 'none';
   document.getElementById('resultado-historial').innerHTML = '';
   document.getElementById('reply-box').style.display = 'none';
   try {
@@ -172,17 +212,37 @@ async function buscarContenido() {
     }
     estado.textContent = `${data.length} conversación(es) con "${q}". Hacé clic para ver.`;
     lista.style.display = 'block';
-    lista.innerHTML = '<div class="resultados-lista">' + data.map(r => `
-      <div class="resultado-card" onclick='cargarConversacionDirecta(${JSON.stringify(r.ig_user_id)})'>
-        ${canalBadge(r.canal)}
-        <div>
-          <div class="rc-nombre">${escHtml(r.nombre || '—')}</div>
-          <div class="rc-tel">${escHtml(r.telefono || r.ig_user_id || '—')}</div>
-        </div>
-        <div class="rc-fecha">${(r.ultimo_mensaje || '').substring(0, 16).replace('T', ' ')}</div>
-      </div>`).join('') + '</div>';
+    lista.innerHTML = '<div class="resultados-lista">' + data.map(renderResultadoCard).join('') + '</div>';
   } catch (e) {
     estado.textContent = 'Error: ' + e.message;
+  }
+}
+
+async function cargarHistorialReciente(reset) {
+  if (reset) {
+    _recientesOffset = 0;
+    document.getElementById('estado-historial').textContent = '';
+    document.getElementById('lista-resultados').style.display = 'none';
+    document.getElementById('lista-resultados').innerHTML = '';
+    document.getElementById('resultado-historial').innerHTML = '';
+    document.getElementById('reply-box').style.display = 'none';
+    document.getElementById('lista-recientes').innerHTML = '<div class="resultados-lista" id="recientes-grid"></div>';
+  }
+  const btnMas = document.getElementById('btn-cargar-mas');
+  try {
+    const res = await fetch(`/historial-reciente?limite=${_RECIENTES_LIMITE}&offset=${_recientesOffset}`);
+    if (!res.ok) throw new Error(`HTTP ${res.status}`);
+    const data = await res.json();
+    if (reset && !data.length) {
+      document.getElementById('lista-recientes').innerHTML = '<span class="empty">Todavía no hay conversaciones.</span>';
+      btnMas.style.display = 'none';
+      return;
+    }
+    document.getElementById('recientes-grid').insertAdjacentHTML('beforeend', data.map(renderResultadoCard).join(''));
+    _recientesOffset += data.length;
+    btnMas.style.display = data.length === _RECIENTES_LIMITE ? 'block' : 'none';
+  } catch (e) {
+    document.getElementById('estado-historial').textContent = 'Error: ' + e.message;
   }
 }
 
@@ -285,7 +345,24 @@ function filtrarArchivos() {
   }).join('');
 }
 
+// ── BRANDING ──────────────────────────────────────────────────────────────────
+async function cargarBranding() {
+  try {
+    const res = await fetch('/dashboard-config');
+    if (!res.ok) return;
+    const d = await res.json();
+    if (d.nombre) {
+      document.getElementById('page-title').textContent = `BridgeBot Dashboard — ${d.nombre}`;
+      document.getElementById('app-title').textContent = `BridgeBot — ${d.nombre}`;
+    }
+    if (d.color) {
+      document.documentElement.style.setProperty('--accent', d.color);
+    }
+  } catch (e) { /* mantiene los valores por defecto */ }
+}
+
 // ── INIT ──────────────────────────────────────────────────────────────────────
+cargarBranding();
 document.getElementById('desde').value = haceDias(30);
 document.getElementById('hasta').value = hoy();
 cargarAnalytics();

@@ -203,6 +203,7 @@ async def init_db():
             "ALTER TABLE usuarios ADD COLUMN telefono     TEXT    DEFAULT ''",
             "ALTER TABLE usuarios ADD COLUMN canonical_id TEXT    DEFAULT ''",
             "ALTER TABLE usuarios ADD COLUMN email        TEXT    DEFAULT ''",
+            "ALTER TABLE usuarios ADD COLUMN pausado      INTEGER DEFAULT 0",
         ]:
             try:
                 await _turso(col_sql, silent=True)
@@ -218,6 +219,7 @@ async def init_db():
             "ALTER TABLE usuarios ADD COLUMN telefono     TEXT    DEFAULT ''",
             "ALTER TABLE usuarios ADD COLUMN canonical_id TEXT    DEFAULT ''",
             "ALTER TABLE usuarios ADD COLUMN email        TEXT    DEFAULT ''",
+            "ALTER TABLE usuarios ADD COLUMN pausado      INTEGER DEFAULT 0",
         ]:
             try:
                 with sqlite3.connect(DB_PATH) as con:
@@ -350,6 +352,25 @@ async def conversacion_cerrada(user_id: str) -> bool:
     return bool(rows)
 
 
+async def pausar_usuario(user_id: str):
+    """Pausa el bot para este usuario (atención manual) hasta que se reanude."""
+    canonical = await obtener_canonical_id(user_id)
+    await _run("UPDATE usuarios SET pausado = 1 WHERE ig_user_id = ?", (canonical,))
+
+
+async def reanudar_usuario(user_id: str):
+    canonical = await obtener_canonical_id(user_id)
+    await _run("UPDATE usuarios SET pausado = 0 WHERE ig_user_id = ?", (canonical,))
+
+
+async def usuario_pausado(user_id: str) -> bool:
+    canonical = await obtener_canonical_id(user_id)
+    rows = await _query(
+        "SELECT pausado FROM usuarios WHERE ig_user_id = ? AND pausado = 1", (canonical,)
+    )
+    return bool(rows)
+
+
 async def stats() -> dict:
     u = await _query("SELECT COUNT(*) as n FROM usuarios")
     l = await _query("SELECT COUNT(*) as n FROM leads")
@@ -388,6 +409,21 @@ async def buscar_en_historial(texto: str, limite: int = 50) -> list[dict]:
            ORDER BY ultimo_mensaje DESC
            LIMIT ?""",
         (f"%{texto}%", limite),
+    )
+
+
+async def obtener_conversaciones_recientes(limite: int = 20, offset: int = 0) -> list[dict]:
+    """Últimas conversaciones (una fila por cliente), paginadas por mensaje más reciente."""
+    return await _query(
+        """SELECT DISTINCT h.ig_user_id, u.nombre, u.telefono, u.canal,
+                  MAX(h.creado_en) as ultimo_mensaje
+           FROM historial h
+           LEFT JOIN usuarios u ON u.ig_user_id = h.ig_user_id
+           WHERE h.rol = 'user'
+           GROUP BY h.ig_user_id
+           ORDER BY ultimo_mensaje DESC
+           LIMIT ? OFFSET ?""",
+        (limite, offset),
     )
 
 

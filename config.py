@@ -35,6 +35,10 @@ MODO_DEV = os.environ.get("MODO_DEV", "false").lower() == "true"
 SALUDO = os.environ.get("SALUDO_BIENVENIDA", "¡Hola! 👋 ¿En qué te puedo ayudar hoy?")
 BOT_NOMBRE = os.environ.get("BOT_NOMBRE", "Asistente")
 
+# ─── DASHBOARD ────────────────────────────────────────────────────────────────
+NOMBRE_NEGOCIO   = os.environ.get("NOMBRE_NEGOCIO", "BridgeBot")
+DASHBOARD_COLOR  = os.environ.get("DASHBOARD_COLOR", "#4f46e5")
+
 def _leer_archivo(nombre: str) -> str:
     base_dir = os.path.dirname(os.path.abspath(__file__))
     try:
