@@ -3,6 +3,8 @@ let _modoHistorial = 'tel';
 let _currentUserId = null;
 let _currentPausado = false;
 let _archivosData  = [];
+let _recientesOffset = 0;
+const _RECIENTES_LIMITE = 20;
 
 // ── UTILS ─────────────────────────────────────────────────────────────────────
 function hoy() { return new Date().toISOString().split('T')[0]; }
@@ -83,6 +85,7 @@ function switchTab(tab) {
   event.target.classList.add('active');
   document.getElementById('filtro-analytics').style.display = tab === 'analytics' ? 'flex' : 'none';
   if (tab === 'archivos') cargarArchivos();
+  if (tab === 'historial') cargarHistorialReciente(true);
 }
 
 // ── ANALYTICS ─────────────────────────────────────────────────────────────────
@@ -161,6 +164,8 @@ async function buscarHistorial() {
   const estado = document.getElementById('estado-historial');
   estado.textContent = 'Buscando...';
   document.getElementById('resultado-historial').innerHTML = '';
+  document.getElementById('lista-recientes').innerHTML = '';
+  document.getElementById('btn-cargar-mas').style.display = 'none';
   try {
     const res = await fetch(`/buscar?telefono=${encodeURIComponent(tel)}`);
     const d = await res.json();
@@ -175,6 +180,18 @@ async function buscarHistorial() {
   }
 }
 
+function renderResultadoCard(r) {
+  return `
+    <div class="resultado-card" onclick='cargarConversacionDirecta(${JSON.stringify(r.ig_user_id)})'>
+      ${canalBadge(r.canal)}
+      <div>
+        <div class="rc-nombre">${escHtml(r.nombre || '—')}</div>
+        <div class="rc-tel">${escHtml(r.telefono || r.ig_user_id || '—')}</div>
+      </div>
+      <div class="rc-fecha">${(r.ultimo_mensaje || '').substring(0, 16).replace('T', ' ')}</div>
+    </div>`;
+}
+
 async function buscarContenido() {
   const q = document.getElementById('input-contenido').value.trim();
   if (!q) return;
@@ -182,6 +199,8 @@ async function buscarContenido() {
   const lista  = document.getElementById('lista-resultados');
   estado.textContent = 'Buscando...';
   lista.style.display = 'none';
+  document.getElementById('lista-recientes').innerHTML = '';
+  document.getElementById('btn-cargar-mas').style.display = 'none';
   document.getElementById('resultado-historial').innerHTML = '';
   document.getElementById('reply-box').style.display = 'none';
   try {
@@ -193,17 +212,37 @@ async function buscarContenido() {
     }
     estado.textContent = `${data.length} conversación(es) con "${q}". Hacé clic para ver.`;
     lista.style.display = 'block';
-    lista.innerHTML = '<div class="resultados-lista">' + data.map(r => `
-      <div class="resultado-card" onclick='cargarConversacionDirecta(${JSON.stringify(r.ig_user_id)})'>
-        ${canalBadge(r.canal)}
-        <div>
-          <div class="rc-nombre">${escHtml(r.nombre || '—')}</div>
-          <div class="rc-tel">${escHtml(r.telefono || r.ig_user_id || '—')}</div>
-        </div>
-        <div class="rc-fecha">${(r.ultimo_mensaje || '').substring(0, 16).replace('T', ' ')}</div>
-      </div>`).join('') + '</div>';
+    lista.innerHTML = '<div class="resultados-lista">' + data.map(renderResultadoCard).join('') + '</div>';
   } catch (e) {
     estado.textContent = 'Error: ' + e.message;
+  }
+}
+
+async function cargarHistorialReciente(reset) {
+  if (reset) {
+    _recientesOffset = 0;
+    document.getElementById('estado-historial').textContent = '';
+    document.getElementById('lista-resultados').style.display = 'none';
+    document.getElementById('lista-resultados').innerHTML = '';
+    document.getElementById('resultado-historial').innerHTML = '';
+    document.getElementById('reply-box').style.display = 'none';
+    document.getElementById('lista-recientes').innerHTML = '<div class="resultados-lista" id="recientes-grid"></div>';
+  }
+  const btnMas = document.getElementById('btn-cargar-mas');
+  try {
+    const res = await fetch(`/historial-reciente?limite=${_RECIENTES_LIMITE}&offset=${_recientesOffset}`);
+    if (!res.ok) throw new Error(`HTTP ${res.status}`);
+    const data = await res.json();
+    if (reset && !data.length) {
+      document.getElementById('lista-recientes').innerHTML = '<span class="empty">Todavía no hay conversaciones.</span>';
+      btnMas.style.display = 'none';
+      return;
+    }
+    document.getElementById('recientes-grid').insertAdjacentHTML('beforeend', data.map(renderResultadoCard).join(''));
+    _recientesOffset += data.length;
+    btnMas.style.display = data.length === _RECIENTES_LIMITE ? 'block' : 'none';
+  } catch (e) {
+    document.getElementById('estado-historial').textContent = 'Error: ' + e.message;
   }
 }
 

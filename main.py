@@ -23,7 +23,8 @@ from db import (buscar_cliente_odoo_por_id, buscar_cliente_odoo_por_telefono,
                 guardar_datos_cliente, guardar_mensaje, init_db, listar_archivos,
                 limpiar_historial, marcar_mensaje_procesado, marcar_saludado,
                 mensaje_ya_procesado, obtener_archivo_por_id, obtener_canonical_id,
-                obtener_conversacion, obtener_datos_cliente, obtener_leads,
+                obtener_conversacion, obtener_conversaciones_recientes,
+                obtener_datos_cliente, obtener_leads,
                 obtener_usuarios, pausar_usuario, reanudar_usuario, resetear_cerrada,
                 resetear_usuario, stats, usuario_pausado)
 from ai import generar_respuesta
@@ -409,6 +410,11 @@ async def buscar_por_contenido(q: str):
         raise HTTPException(status_code=400, detail="Texto de búsqueda muy corto")
     resultados = await buscar_en_historial(q.strip())
     return resultados
+
+
+@app.get("/historial-reciente")
+async def historial_reciente(limite: int = 20, offset: int = 0):
+    return await obtener_conversaciones_recientes(limite=limite, offset=offset)
 
 
 @app.get("/buscar")
