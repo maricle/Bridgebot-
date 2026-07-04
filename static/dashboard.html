@@ -61,28 +61,36 @@
 
   <!-- ── HISTORIAL ── -->
   <div class="tab-panel" id="panel-historial">
-    <div class="search-bar">
-      <div class="mode-toggle">
-        <button class="mode-btn active" id="mode-tel" onclick="setMode('tel')">Por teléfono</button>
-        <button class="mode-btn" id="mode-txt" onclick="setMode('txt')">Por contenido</button>
+    <div class="historial-split">
+      <div class="historial-col-lista">
+        <div class="search-bar">
+          <div class="mode-toggle">
+            <button class="mode-btn active" id="mode-tel" onclick="setMode('tel')">Por teléfono</button>
+            <button class="mode-btn" id="mode-txt" onclick="setMode('txt')">Por contenido</button>
+          </div>
+          <input type="tel"  id="input-telefono" placeholder="Número de teléfono (ej: 3794000000)"
+                 onkeydown="if(event.key==='Enter') buscarHistorial()">
+          <input type="text" id="input-contenido" placeholder="Buscar en conversaciones (ej: estado de pedido)"
+                 style="display:none"
+                 onkeydown="if(event.key==='Enter') buscarContenido()">
+          <button class="btn-primary" onclick="ejecutarBusqueda()">Buscar</button>
+        </div>
+        <p class="estado" id="estado-historial"></p>
+        <div class="historial-lista-scroll">
+          <div id="lista-resultados" style="display:none"></div>
+          <div id="lista-recientes"></div>
+          <button class="btn-cargar-mas" id="btn-cargar-mas" onclick="cargarHistorialReciente(false)" style="display:none">Cargar más</button>
+        </div>
       </div>
-      <input type="tel"  id="input-telefono" placeholder="Número de teléfono (ej: 3794000000)"
-             onkeydown="if(event.key==='Enter') buscarHistorial()">
-      <input type="text" id="input-contenido" placeholder="Buscar en conversaciones (ej: estado de pedido)"
-             style="display:none"
-             onkeydown="if(event.key==='Enter') buscarContenido()">
-      <button class="btn-primary" onclick="ejecutarBusqueda()">Buscar</button>
-    </div>
-    <p class="estado" id="estado-historial"></p>
-    <div id="lista-resultados" style="display:none"></div>
-    <div id="lista-recientes"></div>
-    <button class="btn-cargar-mas" id="btn-cargar-mas" onclick="cargarHistorialReciente(false)" style="display:none">Cargar más</button>
-    <div id="resultado-historial"></div>
-    <div class="reply-box" id="reply-box" style="display:none">
-      <textarea id="reply-texto" placeholder="Escribir respuesta por WhatsApp..."
-                rows="1" oninput="autoResize(this)"
-                onkeydown="if(event.key==='Enter'&&!event.shiftKey){event.preventDefault();enviarRespuesta()}"></textarea>
-      <button class="btn-send" id="btn-send" onclick="enviarRespuesta()">Enviar</button>
+      <div class="historial-col-detalle">
+        <div id="resultado-historial"></div>
+        <div class="reply-box" id="reply-box" style="display:none">
+          <textarea id="reply-texto" placeholder="Escribir respuesta por WhatsApp..."
+                    rows="1" oninput="autoResize(this)"
+                    onkeydown="if(event.key==='Enter'&&!event.shiftKey){event.preventDefault();enviarRespuesta()}"></textarea>
+          <button class="btn-send" id="btn-send" onclick="enviarRespuesta()">Enviar</button>
+        </div>
+      </div>
     </div>
   </div>
 
