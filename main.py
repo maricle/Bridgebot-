@@ -375,6 +375,12 @@ async def dashboard():
         return HTMLResponse(f.read())
 
 
+@app.get("/dashboard-config")
+async def dashboard_config():
+    from config import DASHBOARD_COLOR, NOMBRE_NEGOCIO
+    return {"nombre": NOMBRE_NEGOCIO, "color": DASHBOARD_COLOR}
+
+
 @app.get("/analytics")
 async def analytics(desde: str = "", hasta: str = ""):
     from datetime import date, timedelta

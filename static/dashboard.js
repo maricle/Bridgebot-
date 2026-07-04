@@ -345,7 +345,24 @@ function filtrarArchivos() {
   }).join('');
 }
 
+// ── BRANDING ──────────────────────────────────────────────────────────────────
+async function cargarBranding() {
+  try {
+    const res = await fetch('/dashboard-config');
+    if (!res.ok) return;
+    const d = await res.json();
+    if (d.nombre) {
+      document.getElementById('page-title').textContent = `BridgeBot Dashboard — ${d.nombre}`;
+      document.getElementById('app-title').textContent = `BridgeBot — ${d.nombre}`;
+    }
+    if (d.color) {
+      document.documentElement.style.setProperty('--accent', d.color);
+    }
+  } catch (e) { /* mantiene los valores por defecto */ }
+}
+
 // ── INIT ──────────────────────────────────────────────────────────────────────
+cargarBranding();
 document.getElementById('desde').value = haceDias(30);
 document.getElementById('hasta').value = hoy();
 cargarAnalytics();
