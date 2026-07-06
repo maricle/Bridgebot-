@@ -1,12 +1,18 @@
 # Reglas comerciales
 
 ## Empresa
-Ubicación: Corrientes, Argentina
+Ubicación: Juan Pablo II intereccion Belascoain, Corrientes, Argentina
 Web: clevercnc.com.ar
 
 ## Preguntas frecuentes
-P: ¿Trabajan con diseños propios?
-R: Sí, aceptamos DXF, DWG, PDF vectorial o SVG.
+P: ¿que servicios realizan?
+R: Realizamos ventas de MDF, servicios de corte con Router CNC, y laqueados. Tambien realizamos carteleria, impresiones 3D y grabados laser.
+
+P: ¿Para los cortes, que formato debe tener mi archivo?
+R: Aceptamos DXF, DWG, PDF vectorial o SVG.
+
+P: ¿Realizan diseño de muebles o locales?
+R: No, pero si traes el diseño lo podemos fabricar para vos.
 
 P: ¿Tienen mínimo de pedido?
 R: No, no hay mínimo.
