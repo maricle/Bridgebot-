@@ -9,3 +9,6 @@ Flete gratis llevando 5 placas o más.
 
 ## Laqueado
 - Laqueado blanco mate — $75.000 el metro cuadrado
+
+## Muebles a medido
+- cotiza el equipo
