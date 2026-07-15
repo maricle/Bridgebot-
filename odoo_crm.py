@@ -290,6 +290,30 @@ async def sincronizar_clientes() -> list[dict]:
         return []
 
 
+async def buscar_orden_por_id(order_id: int) -> dict | None:
+    """Busca una sale.order por id via JSON-RPC.
+
+    Se usa cuando el webhook de "trabajo listo" no manda el número de orden
+    en el payload — el selector de campos del Webhook nativo de Odoo es
+    limitado y a veces solo deja elegir Cliente y URL de acceso."""
+    if not ODOO_URL or not ODOO_API_KEY or not ODOO_LOGIN:
+        return None
+    try:
+        async with httpx.AsyncClient() as client:
+            uid = await _autenticar(client)
+            if not uid:
+                return None
+            ordenes = await _execute_kw(
+                client, uid, "sale.order", "search_read",
+                [[["id", "=", order_id]]],
+                {"fields": ["id", "name"], "limit": 1},
+            )
+            return ordenes[0] if ordenes else None
+    except Exception as e:
+        log.error("Error buscando orden %s en Odoo: %s", order_id, e)
+        return None
+
+
 async def actualizar_partner(odoo_id: int, email: str = "") -> bool:
     """Actualiza email de un res.partner en Odoo."""
     if MODO_DEV:

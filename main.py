@@ -543,8 +543,18 @@ async def webhook_trabajo_listo(request: Request):
         payload.get("nro_orden")
         or payload.get("name")
         or (sale_order.get("name") if isinstance(sale_order, dict) else None)
-        or "—"
     )
+
+    # El selector de campos del Webhook nativo de Odoo es limitado: si el
+    # propio payload es una sale.order y no vino el número, lo buscamos por RPC.
+    if not nro_orden and payload.get("_model") == "sale.order" and payload.get("id"):
+        from odoo_crm import buscar_orden_por_id
+        orden = await buscar_orden_por_id(int(payload["id"]))
+        if orden:
+            nro_orden = orden.get("name")
+
+    nro_orden = nro_orden or "—"
+
     telefono, nombre = await _extraer_cliente(payload)
 
     if not telefono:
