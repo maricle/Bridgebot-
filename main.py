@@ -36,6 +36,9 @@ logging.getLogger("httpcore").setLevel(logging.WARNING)
 
 _user_locks: dict[str, asyncio.Lock] = defaultdict(asyncio.Lock)
 
+# Imagen/sticker sueltos (sin pedido) → se guardan pero no se confirma por mensaje
+_TIPOS_MEDIA_SIN_RESPUESTA = {"image", "sticker"}
+
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     from config import ANTHROPIC_API_KEY
@@ -139,8 +142,9 @@ async def procesar_instagram(data: dict):
                 for arch in archivos:
                     await guardar_archivo(canonical, "instagram", arch["tipo"], url=arch.get("url", ""))
                 log.info("IG: %s archivo(s) guardado(s) para %s", len(archivos), sender_arch)
-                async with httpx.AsyncClient() as client:
-                    await instagram.enviar_mensaje(client, sender_arch, "¡Recibimos el archivo! Lo vamos a adjuntar al pedido.")
+                if any(arch["tipo"] not in _TIPOS_MEDIA_SIN_RESPUESTA for arch in archivos):
+                    async with httpx.AsyncClient() as client:
+                        await instagram.enviar_mensaje(client, sender_arch, "¡Recibimos el archivo! Lo vamos a adjuntar al pedido.")
             return
 
         sender_id, mensaje = instagram.extraer_mensaje(data)
@@ -233,8 +237,9 @@ async def procesar_whatsapp(data: dict):
                 for arch in archivos:
                     await guardar_archivo(canonical, "whatsapp", arch["tipo"], media_id=arch.get("media_id", ""))
                 log.info("WA: %s archivo(s) guardado(s) para %s", len(archivos), sender_arch)
-                async with httpx.AsyncClient() as client:
-                    await whatsapp.enviar_mensaje(client, sender_arch, "¡Recibimos el archivo! Lo vamos a adjuntar al pedido.")
+                if any(arch["tipo"] not in _TIPOS_MEDIA_SIN_RESPUESTA for arch in archivos):
+                    async with httpx.AsyncClient() as client:
+                        await whatsapp.enviar_mensaje(client, sender_arch, "¡Recibimos el archivo! Lo vamos a adjuntar al pedido.")
             return
 
         sender_id, mensaje = whatsapp.extraer_mensaje(data)
