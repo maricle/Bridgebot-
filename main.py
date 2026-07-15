@@ -448,10 +448,22 @@ async def _verificar_api_key(request: Request):
 
 
 async def _extraer_cliente(payload: dict) -> tuple[str, str]:
-    """Extrae (telefono, nombre) del payload de Odoo. Busca en sync local si no viene el teléfono."""
+    """Extrae (telefono, nombre) del payload de Odoo. Busca en sync local si no viene el teléfono.
+
+    partner_id puede venir como dict ({"id", "display_name", ...}), como [id, "Nombre"]
+    (formato estándar de Odoo para campos many2one) o como escalar (solo el id)."""
     partner_raw = payload.get("partner_id")
-    partner_id  = partner_raw.get("id") if isinstance(partner_raw, dict) else partner_raw
-    nombre = (partner_raw.get("display_name") if isinstance(partner_raw, dict) else None) or ""
+
+    partner_id = None
+    nombre = ""
+    if isinstance(partner_raw, dict):
+        partner_id = partner_raw.get("id")
+        nombre = partner_raw.get("display_name") or ""
+    elif isinstance(partner_raw, (list, tuple)) and partner_raw:
+        partner_id = partner_raw[0]
+        nombre = partner_raw[1] if len(partner_raw) > 1 else ""
+    elif isinstance(partner_raw, (int, str)):
+        partner_id = partner_raw
 
     telefono = (
         payload.get("partner_phone")
