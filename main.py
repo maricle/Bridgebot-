@@ -440,7 +440,9 @@ async def buscar_por_telefono(telefono: str):
 
 
 async def _verificar_api_key(request: Request):
-    api_key = request.headers.get("X-Api-Key", "")
+    # Header X-Api-Key (integraciones normales) o ?key=... en la URL
+    # (la acción "Webhook" nativa de Odoo no permite configurar headers custom).
+    api_key = request.headers.get("X-Api-Key", "") or request.query_params.get("key", "")
     if not BRIDGE_API_KEY or api_key != BRIDGE_API_KEY:
         raise HTTPException(status_code=401, detail="API key inválida")
 
