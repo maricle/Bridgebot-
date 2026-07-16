@@ -306,12 +306,85 @@ async def buscar_orden_por_id(order_id: int) -> dict | None:
             ordenes = await _execute_kw(
                 client, uid, "sale.order", "search_read",
                 [[["id", "=", order_id]]],
-                {"fields": ["id", "name"], "limit": 1},
+                {"fields": ["id", "name", "amount_total"], "limit": 1},
             )
             return ordenes[0] if ordenes else None
     except Exception as e:
         log.error("Error buscando orden %s en Odoo: %s", order_id, e)
         return None
+
+
+async def registrar_nota(model: str, record_id: int, mensaje: str) -> bool:
+    """Registra un mensaje en el chatter (historial) de un registro de Odoo."""
+    if MODO_DEV:
+        log.info("MODO_DEV activo — nota NO registrada en Odoo (simulada): %s#%s", model, record_id)
+        return True
+    if not ODOO_URL or not ODOO_API_KEY or not ODOO_LOGIN:
+        return False
+    try:
+        async with httpx.AsyncClient() as client:
+            uid = await _autenticar(client)
+            if not uid:
+                return False
+            await _execute_kw(
+                client, uid, model, "message_post",
+                [[record_id]], {"body": mensaje},
+            )
+        log.info("Nota registrada en Odoo %s#%s", model, record_id)
+        return True
+    except Exception as e:
+        log.error("Error registrando nota en Odoo (%s#%s): %s", model, record_id, e)
+        return False
+
+
+async def registrar_nota_orden(order_id: int, mensaje: str) -> bool:
+    """Registra una nota interna (mail.mt_note) en el chatter de una sale.order."""
+    if MODO_DEV:
+        log.info("MODO_DEV activo — nota NO registrada en Odoo (simulada): sale.order#%s", order_id)
+        return True
+    if not ODOO_URL or not ODOO_API_KEY or not ODOO_LOGIN:
+        return False
+    try:
+        async with httpx.AsyncClient() as client:
+            uid = await _autenticar(client)
+            if not uid:
+                return False
+            await _execute_kw(
+                client, uid, "sale.order", "message_post",
+                [[order_id]],
+                {"body": mensaje, "message_type": "comment", "subtype_xmlid": "mail.mt_note"},
+            )
+        log.info("Nota registrada en Odoo sale.order#%s", order_id)
+        return True
+    except Exception as e:
+        log.error("Error registrando nota en Odoo (sale.order#%s): %s", order_id, e)
+        return False
+
+
+async def obtener_telefono_partner(partner_id: int) -> str:
+    """Busca el teléfono (phone o mobile) de un res.partner por RPC directo a Odoo.
+
+    Se usa como último fallback cuando el webhook no trae el teléfono y el
+    partner tampoco está (o está desactualizado) en la sync local."""
+    if not ODOO_URL or not ODOO_API_KEY or not ODOO_LOGIN:
+        return ""
+    try:
+        async with httpx.AsyncClient() as client:
+            uid = await _autenticar(client)
+            if not uid:
+                return ""
+            partners = await _execute_kw(
+                client, uid, "res.partner", "search_read",
+                [[["id", "=", partner_id]]],
+                {"fields": ["phone", "mobile"], "limit": 1},
+            )
+        if not partners:
+            return ""
+        telefono = partners[0].get("phone") or partners[0].get("mobile") or ""
+        return "".join(c for c in telefono if c.isdigit())
+    except Exception as e:
+        log.error("Error buscando teléfono de partner %s en Odoo: %s", partner_id, e)
+        return ""
 
 
 async def actualizar_partner(odoo_id: int, email: str = "") -> bool:

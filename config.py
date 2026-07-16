@@ -211,11 +211,11 @@ DB_PATH     = os.environ.get("DB_PATH", "/app/bridgebot.db")
 BRIDGE_API_KEY = os.environ.get("BRIDGE_API_KEY", "")
 
 # Plantillas de mensajes WA para notificaciones desde Odoo
-# Placeholders disponibles: {nombre}, {nro_orden}
+# Placeholders disponibles: {nombre}, {nro_orden}, {monto} (solo orden confirmada)
 WA_MSG_ORDEN_CONFIRMADA = os.environ.get(
     "WA_MSG_ORDEN_CONFIRMADA",
-    "Hola {nombre} 👋 Tu pedido *#{nro_orden}* fue registrado correctamente. "
-    "En breve nos ponemos en contacto para coordinar los detalles."
+    "Hola {nombre} 👋 Tu pedido *#{nro_orden}* fue registrado correctamente "
+    "por un total de *{monto}*. En breve nos ponemos en contacto para coordinar los detalles."
 )
 WA_MSG_TRABAJO_LISTO = os.environ.get(
     "WA_MSG_TRABAJO_LISTO",

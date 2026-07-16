@@ -442,9 +442,19 @@ async def buscar_por_telefono(telefono: str):
 async def _verificar_api_key(request: Request):
     # Header X-Api-Key (integraciones normales) o ?key=... en la URL
     # (la acción "Webhook" nativa de Odoo no permite configurar headers custom).
+    # Si BRIDGE_API_KEY no está configurada, se omite la validación (modo dev).
+    if not BRIDGE_API_KEY:
+        return
     api_key = request.headers.get("X-Api-Key", "") or request.query_params.get("key", "")
-    if not BRIDGE_API_KEY or api_key != BRIDGE_API_KEY:
+    if api_key != BRIDGE_API_KEY:
         raise HTTPException(status_code=401, detail="API key inválida")
+
+
+def _formatear_monto(valor) -> str:
+    try:
+        return f"${float(valor):,.0f}".replace(",", ".")
+    except (TypeError, ValueError):
+        return ""
 
 
 async def _extraer_cliente(payload: dict) -> tuple[str, str]:
@@ -481,10 +491,34 @@ async def _extraer_cliente(payload: dict) -> tuple[str, str]:
             telefono = "".join(c for c in (cliente.get("telefono") or "") if c.isdigit())
             nombre   = nombre or cliente.get("nombre") or ""
 
+    # Último recurso: la sync local puede estar desactualizada o no tener el
+    # partner — buscamos el teléfono directo en Odoo por RPC.
+    if not telefono and partner_id:
+        from odoo_crm import obtener_telefono_partner
+        telefono = await obtener_telefono_partner(int(partner_id))
+
     return telefono, nombre
 
 
-async def _enviar_notificacion_wa(telefono: str, mensaje: str, nro_orden: str):
+def _resolver_order_id(payload: dict) -> int | None:
+    """Resuelve el id real de la sale.order para dejar la nota en el registro correcto.
+
+    Si el payload es directamente una sale.order, es su "id". Si es una
+    project.task (caso de "trabajo listo"), se toma de sale_order_id — que
+    puede venir como dict, [id, "nombre"] o ausente si el selector de campos
+    del Webhook nativo de Odoo no lo incluyó."""
+    if payload.get("_model") == "sale.order" and payload.get("id"):
+        return int(payload["id"])
+    sale_order = payload.get("sale_order_id")
+    if isinstance(sale_order, dict) and sale_order.get("id"):
+        return int(sale_order["id"])
+    if isinstance(sale_order, (list, tuple)) and sale_order:
+        return int(sale_order[0])
+    return None
+
+
+async def _enviar_notificacion_wa(telefono: str, mensaje: str, nro_orden: str,
+                                   odoo_model: str = "", odoo_id: int = 0):
     async with httpx.AsyncClient() as client:
         ok = await whatsapp.enviar_mensaje(client, telefono, mensaje)
     if not ok:
@@ -492,6 +526,50 @@ async def _enviar_notificacion_wa(telefono: str, mensaje: str, nro_orden: str):
     canonical = await obtener_canonical_id(telefono)
     await guardar_mensaje(canonical, "assistant", f"[Odoo] {mensaje}")
     log.info("Odoo → WA enviado a %s | orden: %s", telefono, nro_orden)
+
+    if odoo_model and odoo_id:
+        from odoo_crm import registrar_nota
+        await registrar_nota(odoo_model, odoo_id, f"WhatsApp enviado al cliente:\n{mensaje}")
+
+
+async def _notificar_orden(telefono: str, mensaje: str, order_id: int | None, nota_exito: str) -> bool:
+    """Envía el WA y deja constancia en el chatter de la orden (éxito o motivo del fallo).
+
+    Nunca lanza — el webhook de Odoo siempre debe recibir 200, de lo contrario
+    Odoo reintenta el envío y se duplican los mensajes al cliente."""
+    from odoo_crm import registrar_nota_orden
+
+    if not telefono:
+        log.warning("Sin teléfono registrado — no se envía WhatsApp (orden id=%s)", order_id)
+        if order_id:
+            await registrar_nota_orden(
+                order_id,
+                "⚠️ No se pudo enviar WhatsApp: el cliente no tiene teléfono registrado en Odoo.",
+            )
+        return False
+
+    enviado = False
+    try:
+        async with httpx.AsyncClient() as client:
+            enviado = await whatsapp.enviar_mensaje(client, telefono, mensaje)
+    except Exception as e:
+        log.error("Error enviando WhatsApp a %s: %s", telefono, e)
+
+    if enviado:
+        canonical = await obtener_canonical_id(telefono)
+        await guardar_mensaje(canonical, "assistant", f"[Odoo] {mensaje}")
+        log.info("Odoo → WA enviado a %s", telefono)
+        if order_id:
+            await registrar_nota_orden(order_id, nota_exito)
+    else:
+        log.error("No se pudo enviar WhatsApp a %s", telefono)
+        if order_id:
+            await registrar_nota_orden(
+                order_id,
+                "⚠️ No se pudo enviar WhatsApp: error al enviar el mensaje por WhatsApp.",
+            )
+
+    return enviado
 
 
 @app.post("/odoo/webhook")
@@ -506,7 +584,11 @@ async def webhook_odoo(request: Request):
         return {"ok": False, "detalle": f"Sin teléfono para orden {nro_orden}"}
     nombre_corto = nombre.split()[0] if nombre else "te"
     mensaje = payload.get("mensaje") or WA_MSG_TRABAJO_LISTO.format(nombre=nombre_corto, nro_orden=nro_orden)
-    await _enviar_notificacion_wa(telefono, mensaje, nro_orden)
+    await _enviar_notificacion_wa(
+        telefono, mensaje, nro_orden,
+        odoo_model=str(payload.get("_model") or ""),
+        odoo_id=int(payload["id"]) if payload.get("id") else 0,
+    )
     return {"ok": True, "telefono": telefono, "orden": nro_orden}
 
 
@@ -517,17 +599,29 @@ async def webhook_orden_confirmada(request: Request):
     payload = await request.json()
     log.info("Odoo webhook orden-confirmada payload: %s", payload)
 
+    order_id = _resolver_order_id(payload) or (int(payload["id"]) if payload.get("id") else None)
     nro_orden = payload.get("name") or payload.get("nro_orden") or "—"
+    monto = payload.get("amount_total")
+
+    # El selector de campos del Webhook nativo de Odoo es limitado: si no
+    # vino el monto o el nombre pero sí el id, lo completamos por RPC.
+    if (monto is None or not nro_orden or nro_orden == "—") and order_id:
+        from odoo_crm import buscar_orden_por_id
+        orden = await buscar_orden_por_id(order_id)
+        if orden:
+            nro_orden = nro_orden if nro_orden and nro_orden != "—" else orden.get("name") or "—"
+            monto = monto if monto is not None else orden.get("amount_total")
+
+    monto_fmt = _formatear_monto(monto)
     telefono, nombre = await _extraer_cliente(payload)
-
-    if not telefono:
-        log.warning("orden-confirmada: sin teléfono para orden %s", nro_orden)
-        return {"ok": False, "detalle": f"Sin teléfono para orden {nro_orden}"}
-
     nombre_corto = nombre.split()[0] if nombre else "te"
-    mensaje = WA_MSG_ORDEN_CONFIRMADA.format(nombre=nombre_corto, nro_orden=nro_orden)
-    await _enviar_notificacion_wa(telefono, mensaje, nro_orden)
-    return {"ok": True, "telefono": telefono, "orden": nro_orden}
+    mensaje = WA_MSG_ORDEN_CONFIRMADA.format(nombre=nombre_corto, nro_orden=nro_orden, monto=monto_fmt or "—")
+
+    enviado = await _notificar_orden(
+        telefono, mensaje, order_id,
+        nota_exito=f"✅ WhatsApp enviado al cliente:\n{mensaje}",
+    )
+    return {"ok": enviado, "telefono": telefono, "orden": nro_orden}
 
 
 @app.post("/odoo/webhook/trabajo-listo")
@@ -545,6 +639,8 @@ async def webhook_trabajo_listo(request: Request):
         or (sale_order.get("name") if isinstance(sale_order, dict) else None)
     )
 
+    order_id = _resolver_order_id(payload)
+
     # El selector de campos del Webhook nativo de Odoo es limitado: si el
     # propio payload es una sale.order y no vino el número, lo buscamos por RPC.
     if not nro_orden and payload.get("_model") == "sale.order" and payload.get("id"):
@@ -556,15 +652,14 @@ async def webhook_trabajo_listo(request: Request):
     nro_orden = nro_orden or "—"
 
     telefono, nombre = await _extraer_cliente(payload)
-
-    if not telefono:
-        log.warning("trabajo-listo: sin teléfono para orden %s", nro_orden)
-        return {"ok": False, "detalle": f"Sin teléfono para orden {nro_orden}"}
-
     nombre_corto = nombre.split()[0] if nombre else "te"
     mensaje = WA_MSG_TRABAJO_LISTO.format(nombre=nombre_corto, nro_orden=nro_orden)
-    await _enviar_notificacion_wa(telefono, mensaje, nro_orden)
-    return {"ok": True, "telefono": telefono, "orden": nro_orden}
+
+    enviado = await _notificar_orden(
+        telefono, mensaje, order_id,
+        nota_exito="✅ Cliente notificado: trabajo listo",
+    )
+    return {"ok": enviado, "telefono": telefono, "orden": nro_orden}
 
 
 @app.post("/odoo/enviar")
