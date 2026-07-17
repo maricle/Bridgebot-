@@ -214,8 +214,8 @@ BRIDGE_API_KEY = os.environ.get("BRIDGE_API_KEY", "")
 # Placeholders disponibles: {nombre}, {nro_orden}, {monto} (solo orden confirmada)
 WA_MSG_ORDEN_CONFIRMADA = os.environ.get(
     "WA_MSG_ORDEN_CONFIRMADA",
-    "Hola {nombre} 👋 Tu pedido *#{nro_orden}* fue registrado correctamente "
-    "por un total de *{monto}*. En breve nos ponemos en contacto para coordinar los detalles."
+    "Hola {nombre} 👋 te enviamos tu cotización Nro #{nro_orden} "
+    "por un total de {monto} a confirmar."
 )
 WA_MSG_TRABAJO_LISTO = os.environ.get(
     "WA_MSG_TRABAJO_LISTO",
