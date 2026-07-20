@@ -15,8 +15,9 @@ from fastapi.staticfiles import StaticFiles
 
 import instagram
 import whatsapp
-from config import (AUTO_RESPUESTA, BRIDGE_API_KEY, EXCLUIR_BOT, IG_ACCOUNT_ID,
-                    SALUDO, VERIFY_TOKEN, WA_MSG_ORDEN_CONFIRMADA, WA_MSG_TRABAJO_LISTO)
+from config import (ALIAS_TRANSFERENCIA, AUTO_RESPUESTA, BRIDGE_API_KEY, EXCLUIR_BOT,
+                    IG_ACCOUNT_ID, ODOO_URL, SALUDO, VERIFY_TOKEN,
+                    WA_MSG_ORDEN_CONFIRMADA, WA_MSG_TRABAJO_LISTO)
 from db import (buscar_cliente_odoo_por_id, buscar_cliente_odoo_por_telefono,
                 buscar_en_historial, buscar_usuario_por_telefono,
                 conversacion_cerrada, es_usuario_nuevo, guardar_archivo,
@@ -602,20 +603,26 @@ async def webhook_orden_confirmada(request: Request):
     order_id = _resolver_order_id(payload) or (int(payload["id"]) if payload.get("id") else None)
     nro_orden = payload.get("name") or payload.get("nro_orden") or "—"
     monto = payload.get("amount_total")
+    access_url = payload.get("access_url") or ""
 
     # El selector de campos del Webhook nativo de Odoo es limitado: si no
-    # vino el monto o el nombre pero sí el id, lo completamos por RPC.
-    if (monto is None or not nro_orden or nro_orden == "—") and order_id:
+    # vino el monto, el nombre o el link pero sí el id, lo completamos por RPC.
+    if (monto is None or not nro_orden or nro_orden == "—" or not access_url) and order_id:
         from odoo_crm import buscar_orden_por_id
         orden = await buscar_orden_por_id(order_id)
         if orden:
             nro_orden = nro_orden if nro_orden and nro_orden != "—" else orden.get("name") or "—"
             monto = monto if monto is not None else orden.get("amount_total")
+            access_url = access_url or orden.get("access_url") or ""
 
     monto_fmt = _formatear_monto(monto)
+    link = f"{ODOO_URL}{access_url}" if access_url else ""
     telefono, nombre = await _extraer_cliente(payload)
     nombre_corto = nombre.split()[0] if nombre else "te"
-    mensaje = WA_MSG_ORDEN_CONFIRMADA.format(nombre=nombre_corto, nro_orden=nro_orden, monto=monto_fmt or "—")
+    mensaje = WA_MSG_ORDEN_CONFIRMADA.format(
+        nombre=nombre_corto, nro_orden=nro_orden, monto=monto_fmt or "—",
+        link=link or "—", alias=ALIAS_TRANSFERENCIA or "consultar con el equipo",
+    )
 
     enviado = await _notificar_orden(
         telefono, mensaje, order_id,

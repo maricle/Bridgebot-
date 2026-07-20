@@ -210,12 +210,16 @@ DB_PATH     = os.environ.get("DB_PATH", "/app/bridgebot.db")
 # Clave para endpoints que llaman servicios externos (ej: Odoo)
 BRIDGE_API_KEY = os.environ.get("BRIDGE_API_KEY", "")
 
+# Alias de transferencia bancaria informado en el mensaje de orden confirmada
+ALIAS_TRANSFERENCIA = os.environ.get("ALIAS_TRANSFERENCIA", "")
+
 # Plantillas de mensajes WA para notificaciones desde Odoo
-# Placeholders disponibles: {nombre}, {nro_orden}, {monto} (solo orden confirmada)
+# Placeholders disponibles: {nombre}, {nro_orden}, {monto}, {link}, {alias} (los últimos tres solo en orden confirmada)
 WA_MSG_ORDEN_CONFIRMADA = os.environ.get(
     "WA_MSG_ORDEN_CONFIRMADA",
-    "Hola {nombre} 👋 Tu pedido *#{nro_orden}* fue registrado correctamente. "
-    "En breve nos ponemos en contacto para coordinar los detalles."
+    "Hola {nombre} 👋 Tu pedido *#{nro_orden}* fue registrado correctamente, por un total de *{monto}*.\n\n"
+    "Podés ver el detalle acá: {link}\n\n"
+    "Para coordinar, podés transferir a nuestro alias: *{alias}*"
 )
 WA_MSG_TRABAJO_LISTO = os.environ.get(
     "WA_MSG_TRABAJO_LISTO",
