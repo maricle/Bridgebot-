@@ -157,9 +157,11 @@ async def procesar_instagram(data: dict):
             return
         if sender_id in EXCLUIR_BOT:
             log.info("IG: atendido por humano %s, ignorando.", sender_id)
+            await guardar_mensaje(await obtener_canonical_id(sender_id), "user", mensaje)
             return
         if await usuario_pausado(sender_id):
             log.info("IG: bot pausado para %s, ignorando.", sender_id)
+            await guardar_mensaje(await obtener_canonical_id(sender_id), "user", mensaje)
             return
 
         # Deduplicación (antes del lock, después de filtros)
@@ -181,6 +183,8 @@ async def procesar_instagram(data: dict):
             log.info("IG user=%s: %s", sender_id, mensaje[:100])
             async with httpx.AsyncClient() as client:
                 if AUTO_RESPUESTA:
+                    canonical = await obtener_canonical_id(sender_id)
+                    await guardar_mensaje(canonical, "user", mensaje)
                     if cerrada or await es_usuario_nuevo(sender_id):
                         await instagram.enviar_mensaje(client, sender_id, SALUDO)
                         if not cerrada:
@@ -249,9 +253,11 @@ async def procesar_whatsapp(data: dict):
             return
         if sender_id in EXCLUIR_BOT:
             log.info("WA: atendido por humano %s, ignorando.", sender_id)
+            await guardar_mensaje(await obtener_canonical_id(sender_id), "user", mensaje)
             return
         if await usuario_pausado(sender_id):
             log.info("WA: bot pausado para %s, ignorando.", sender_id)
+            await guardar_mensaje(await obtener_canonical_id(sender_id), "user", mensaje)
             return
 
         async with _user_locks[sender_id]:
