@@ -201,10 +201,12 @@ _NO_RESPONDER = "NO_RESPONDER"
 
 async def generar_respuesta(user_id: str, mensaje: str, canal: str = "instagram",
                             es_nuevo: bool = False) -> str | None:
+    canonical_id = await obtener_canonical_id(user_id)
+
     if not ANTHROPIC_API_KEY:
+        await guardar_mensaje(canonical_id, "user", mensaje)
         return "El servicio de IA no está configurado. Te contactamos a la brevedad."
 
-    canonical_id  = await obtener_canonical_id(user_id)
     historial     = await obtener_historial(canonical_id)
     datos_cliente = await obtener_datos_cliente(canonical_id)
 
@@ -302,6 +304,7 @@ async def generar_respuesta(user_id: str, mensaje: str, canal: str = "instagram"
         log.info("Contexto de precios incluido para user=%s", user_id)
 
     if not respuesta:
+        await guardar_mensaje(canonical_id, "user", mensaje)
         return "Tardamos un poco más de lo normal. ¿Podés repetir tu consulta?"
 
     if respuesta.strip() == _NO_RESPONDER:
