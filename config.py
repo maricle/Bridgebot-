@@ -219,7 +219,7 @@ WA_MSG_ORDEN_CONFIRMADA = os.environ.get(
     "WA_MSG_ORDEN_CONFIRMADA",
     "Hola {nombre} 👋 Tu pedido *#{nro_orden}* fue registrado correctamente, por un total de *{monto}*.\n\n"
     "Podés ver el detalle acá: {link}\n\n"
-    "Para coordinar, podés transferir a nuestro alias: *{alias}*"
+    "Transferencias a nuestro alias: *{alias}*"
 )
 WA_MSG_TRABAJO_LISTO = os.environ.get(
     "WA_MSG_TRABAJO_LISTO",
