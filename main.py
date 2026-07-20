@@ -272,6 +272,15 @@ async def procesar_whatsapp(data: dict):
 
             log.info("WA user=%s: %s", sender_id, mensaje[:100])
             async with httpx.AsyncClient() as client:
+                if AUTO_RESPUESTA:
+                    canonical = await obtener_canonical_id(sender_id)
+                    await guardar_mensaje(canonical, "user", mensaje)
+                    if cerrada or await es_usuario_nuevo(sender_id):
+                        await whatsapp.enviar_mensaje(client, sender_id, SALUDO)
+                        if not cerrada:
+                            await marcar_saludado(sender_id, "whatsapp")
+                    return
+
                 nuevo = await es_usuario_nuevo(sender_id)
                 if nuevo:
                     await marcar_saludado(sender_id, "whatsapp")
