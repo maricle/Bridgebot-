@@ -57,10 +57,11 @@ Respondé SOLO con un JSON válido con este formato exacto (sin explicaciones):
   "requiere_diseno": true/false
 }
 
-"tiene_lead" debe ser true SOLO si se cumplen LAS TRES condiciones:
+"tiene_lead" debe ser true SOLO si se cumplen LAS CUATRO condiciones:
 1. Se conoce el nombre y apellido del cliente (puede venir de los datos conocidos al inicio)
 2. Se conoce el teléfono o WhatsApp del cliente (puede venir de los datos conocidos al inicio)
-3. El cliente tiene un pedido o consulta concreta (producto o proyecto definido)
+3. El cliente tiene un pedido o consulta concreta (producto o proyecto definido), con descripción suficiente para registrar el pedido
+4. El cliente CONFIRMÓ EXPLÍCITAMENTE el pedido después de que el bot le mostró un resumen y preguntó si estaba correcto (ej: respondió "sí", "dale", "confirmo", "correcto", "así es"). NO alcanza con que el cliente haya dado los datos — tiene que existir esa confirmación posterior en la conversación. Si el bot todavía no pidió confirmación, o la pidió pero el cliente no respondió afirmativamente todavía, "tiene_lead" debe ser false.
 
 Si hay datos conocidos marcados con [Nombre conocido], [Teléfono conocido] o [Email conocido], usarlos por defecto.
 EXCEPCIÓN: si el cliente declaró explícitamente datos DISTINTOS en la conversación, usar los datos que el cliente proporcionó.
@@ -163,6 +164,16 @@ async def _intentar_crear_lead(user_id: str, canal: str, historial: list,
     # En WhatsApp el user_id ES el número de teléfono
     if canal == "whatsapp" and not telefono:
         telefono = canonical_id
+
+    # Guardia determinística — no confiar solo en el criterio de Claude:
+    # sin nombre, teléfono y descripción del pedido, no se crea el lead.
+    if not (nombre and telefono and descripcion):
+        log.warning(
+            "Extracción marcó tiene_lead=true pero faltan datos — no se crea el lead "
+            "(canonical=%s, nombre=%r, telefono=%r, descripcion=%r)",
+            canonical_id, nombre, telefono, descripcion,
+        )
+        return
 
     # Si IG y tenemos teléfono → buscar usuario WA para vincular
     if canal == "instagram" and telefono and canonical_id == user_id:
