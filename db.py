@@ -434,8 +434,8 @@ async def obtener_conversaciones_recientes(limite: int = 20, offset: int = 0) ->
 
 
 async def guardar_archivo(user_id: str, canal: str, tipo: str,
-                          media_id: str = "", url: str = ""):
-    await _run(
+                          media_id: str = "", url: str = "") -> int:
+    return await _run(
         "INSERT INTO archivos (ig_user_id, canal, tipo, media_id, url) VALUES (?, ?, ?, ?, ?)",
         (user_id, canal, tipo, media_id, url),
     )

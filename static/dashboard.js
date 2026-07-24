@@ -27,11 +27,20 @@ function canalBadge(canal) {
 function esWhatsApp(canal, userId) {
   return canal === 'whatsapp' || (!canal && /^\d{10,15}$/.test(userId));
 }
+const _ARCHIVO_RE = /^\[Archivo recibido: (\w+)\] (\/archivos\/\d+\/descargar)$/;
+
+function renderContenidoMensaje(contenido) {
+  const m = _ARCHIVO_RE.exec(contenido);
+  if (!m) return escHtml(contenido);
+  const [, tipo, url] = m;
+  return `📎 Archivo recibido (${escHtml(tipo)}) — <a class="dl-btn" href="${url}" target="_blank">Descargar</a>`;
+}
+
 function renderConversacion(historial) {
   if (!historial.length) return '<span class="empty">Sin mensajes registrados.</span>';
   return historial.map(m => `
     <div class="msg ${m.rol}">
-      ${escHtml(m.contenido)}
+      ${renderContenidoMensaje(m.contenido)}
       <div class="msg-meta">${m.creado_en || ''}</div>
     </div>`).join('');
 }

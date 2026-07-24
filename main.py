@@ -143,8 +143,9 @@ async def procesar_instagram(data: dict):
             async with _user_locks[sender_arch]:
                 canonical = await obtener_canonical_id(sender_arch)
                 for arch in archivos:
-                    await guardar_archivo(canonical, "instagram", arch["tipo"], url=arch.get("url", ""))
-                    await guardar_mensaje(canonical, "user", f"[Archivo recibido: {arch['tipo']}]")
+                    archivo_id = await guardar_archivo(canonical, "instagram", arch["tipo"], url=arch.get("url", ""))
+                    await guardar_mensaje(canonical, "user",
+                        f"[Archivo recibido: {arch['tipo']}] /archivos/{archivo_id}/descargar")
                 log.info("IG: %s archivo(s) guardado(s) para %s", len(archivos), sender_arch)
                 if any(arch["tipo"] not in _TIPOS_MEDIA_SIN_RESPUESTA for arch in archivos):
                     async with httpx.AsyncClient() as client:
@@ -244,8 +245,9 @@ async def procesar_whatsapp(data: dict):
             async with _user_locks[sender_arch]:
                 canonical = await obtener_canonical_id(sender_arch)
                 for arch in archivos:
-                    await guardar_archivo(canonical, "whatsapp", arch["tipo"], media_id=arch.get("media_id", ""))
-                    await guardar_mensaje(canonical, "user", f"[Archivo recibido: {arch['tipo']}]")
+                    archivo_id = await guardar_archivo(canonical, "whatsapp", arch["tipo"], media_id=arch.get("media_id", ""))
+                    await guardar_mensaje(canonical, "user",
+                        f"[Archivo recibido: {arch['tipo']}] /archivos/{archivo_id}/descargar")
                 log.info("WA: %s archivo(s) guardado(s) para %s", len(archivos), sender_arch)
                 if any(arch["tipo"] not in _TIPOS_MEDIA_SIN_RESPUESTA for arch in archivos):
                     async with httpx.AsyncClient() as client:
