@@ -408,9 +408,16 @@ async def health():
 @app.get("/dashboard")
 async def dashboard():
     import os
-    html_path = os.path.join(os.path.dirname(__file__), "static", "dashboard.html")
-    with open(html_path, encoding="utf-8") as f:
-        return HTMLResponse(f.read())
+    base_dir = os.path.dirname(__file__)
+    with open(os.path.join(base_dir, "static", "dashboard.html"), encoding="utf-8") as f:
+        html = f.read()
+    # Cache-busting: el navegador cachea agresivamente los estaticos servidos por
+    # StaticFiles. Sin esto, despues de cada deploy los usuarios con la pestaña ya
+    # abierta (o cache reciente) siguen viendo el dashboard.js/css viejo.
+    for nombre in ("dashboard.css", "dashboard.js"):
+        version = int(os.path.getmtime(os.path.join(base_dir, "static", nombre)))
+        html = html.replace(f"/static/{nombre}", f"/static/{nombre}?v={version}")
+    return HTMLResponse(html)
 
 
 @app.get("/dashboard-config")
