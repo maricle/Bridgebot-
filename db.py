@@ -63,6 +63,11 @@ _CREATE_TABLES = [
         sale_order_name  TEXT DEFAULT '',
         synced_at        TEXT DEFAULT (datetime('now'))
     )""",
+    """CREATE TABLE IF NOT EXISTS configuracion (
+        clave          TEXT PRIMARY KEY,
+        valor          TEXT NOT NULL DEFAULT '',
+        actualizado_en TEXT DEFAULT (datetime('now'))
+    )""",
 ]
 
 
@@ -413,13 +418,14 @@ async def buscar_en_historial(texto: str, limite: int = 50) -> list[dict]:
 
 
 async def obtener_conversaciones_recientes(limite: int = 20, offset: int = 0) -> list[dict]:
-    """Últimas conversaciones (una fila por cliente), paginadas por mensaje más reciente."""
+    """Últimas conversaciones (una fila por cliente), paginadas por mensaje más reciente.
+    Incluye conversaciones sin mensajes del cliente (ej. notificaciones salientes de Odoo
+    a alguien que nunca escribió) — no filtra por rol."""
     return await _query(
         """SELECT DISTINCT h.ig_user_id, u.nombre, u.telefono, u.canal,
                   MAX(h.creado_en) as ultimo_mensaje
            FROM historial h
            LEFT JOIN usuarios u ON u.ig_user_id = h.ig_user_id
-           WHERE h.rol = 'user'
            GROUP BY h.ig_user_id
            ORDER BY ultimo_mensaje DESC
            LIMIT ? OFFSET ?""",
@@ -428,8 +434,8 @@ async def obtener_conversaciones_recientes(limite: int = 20, offset: int = 0) ->
 
 
 async def guardar_archivo(user_id: str, canal: str, tipo: str,
-                          media_id: str = "", url: str = ""):
-    await _run(
+                          media_id: str = "", url: str = "") -> int:
+    return await _run(
         "INSERT INTO archivos (ig_user_id, canal, tipo, media_id, url) VALUES (?, ?, ?, ?, ?)",
         (user_id, canal, tipo, media_id, url),
     )
@@ -600,3 +606,24 @@ async def buscar_cliente_odoo_por_telefono(telefono: str) -> dict | None:
         (f"%{sufijo}",),
     )
     return rows[0] if rows else None
+
+
+# ─── CONFIGURACIÓN (panel de admin) ───────────────────────────────────────────
+
+async def obtener_config(clave: str) -> str | None:
+    """Override guardado desde el panel de configuración, o None si no existe."""
+    rows = await _query("SELECT valor FROM configuracion WHERE clave = ?", (clave,))
+    return rows[0]["valor"] if rows else None
+
+
+async def obtener_config_todas() -> dict[str, str]:
+    rows = await _query("SELECT clave, valor FROM configuracion")
+    return {r["clave"]: r["valor"] for r in rows}
+
+
+async def guardar_config(clave: str, valor: str):
+    await _run(
+        """INSERT INTO configuracion (clave, valor, actualizado_en) VALUES (?, ?, datetime('now'))
+           ON CONFLICT(clave) DO UPDATE SET valor = excluded.valor, actualizado_en = excluded.actualizado_en""",
+        (clave, valor),
+    )

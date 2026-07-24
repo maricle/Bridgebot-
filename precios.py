@@ -20,6 +20,13 @@ def _leer_local() -> str:
 
 async def cargar() -> str:
     global _contenido
+    from db import obtener_config
+    override = await obtener_config("knowledge:precios.md")
+    if override is not None:
+        _contenido = override
+        log.info("Precios cargados desde override del panel (%d chars)", len(_contenido))
+        return _contenido
+
     if PRECIOS_DOC_URL:
         try:
             async with httpx.AsyncClient() as client:

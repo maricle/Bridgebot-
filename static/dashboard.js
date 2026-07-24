@@ -27,11 +27,20 @@ function canalBadge(canal) {
 function esWhatsApp(canal, userId) {
   return canal === 'whatsapp' || (!canal && /^\d{10,15}$/.test(userId));
 }
+const _ARCHIVO_RE = /^\[Archivo recibido: (\w+)\] (\/archivos\/\d+\/descargar)$/;
+
+function renderContenidoMensaje(contenido) {
+  const m = _ARCHIVO_RE.exec(contenido);
+  if (!m) return escHtml(contenido);
+  const [, tipo, url] = m;
+  return `📎 Archivo recibido (${escHtml(tipo)}) — <a class="dl-btn" href="${url}" target="_blank">Descargar</a>`;
+}
+
 function renderConversacion(historial) {
   if (!historial.length) return '<span class="empty">Sin mensajes registrados.</span>';
   return historial.map(m => `
     <div class="msg ${m.rol}">
-      ${escHtml(m.contenido)}
+      ${renderContenidoMensaje(m.contenido)}
       <div class="msg-meta">${m.creado_en || ''}</div>
     </div>`).join('');
 }
@@ -78,14 +87,18 @@ async function togglePausa() {
 }
 
 // ── TABS ──────────────────────────────────────────────────────────────────────
+const _TAB_TITULOS = { analytics: 'Analytics', historial: 'Historial', archivos: 'Archivos', config: 'Configuración' };
+
 function switchTab(tab) {
   document.querySelectorAll('.tab-panel').forEach(p => p.classList.remove('active'));
-  document.querySelectorAll('.tab-btn').forEach(b => b.classList.remove('active'));
+  document.querySelectorAll('#accordionSidebar .nav-item').forEach(li => li.classList.remove('active'));
   document.getElementById('panel-' + tab).classList.add('active');
-  event.target.classList.add('active');
+  document.getElementById('navitem-' + tab).classList.add('active');
+  document.getElementById('page-heading').textContent = _TAB_TITULOS[tab] || '';
   document.getElementById('filtro-analytics').style.display = tab === 'analytics' ? 'flex' : 'none';
   if (tab === 'archivos') cargarArchivos();
   if (tab === 'historial') cargarHistorialReciente(true);
+  if (tab === 'config') cargarConfiguracionTab();
 }
 
 // ── ANALYTICS ─────────────────────────────────────────────────────────────────
@@ -359,6 +372,101 @@ async function cargarBranding() {
       document.documentElement.style.setProperty('--accent', d.color);
     }
   } catch (e) { /* mantiene los valores por defecto */ }
+}
+
+// ── CONFIGURACIÓN ─────────────────────────────────────────────────────────────
+let _knowledgeCache = {};
+
+function _pedirApiKey() {
+  const key = prompt('Ingresá la API key (BRIDGE_API_KEY) para guardar cambios de configuración:');
+  if (key) localStorage.setItem('bridgebot_api_key', key);
+  return key;
+}
+
+async function _postConfig(url, body) {
+  let key = localStorage.getItem('bridgebot_api_key');
+  if (!key) key = _pedirApiKey();
+  if (!key) throw new Error('Se necesita la API key para guardar');
+
+  const intentar = (k) => fetch(url, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', 'X-Api-Key': k },
+    body: JSON.stringify(body),
+  });
+
+  let res = await intentar(key);
+  if (res.status === 401) {
+    localStorage.removeItem('bridgebot_api_key');
+    key = _pedirApiKey();
+    if (!key) throw new Error('Se necesita la API key para guardar');
+    res = await intentar(key);
+  }
+  if (!res.ok) throw new Error(`HTTP ${res.status}`);
+  return res.json();
+}
+
+async function cargarConfiguracionTab() {
+  const estadoVars = document.getElementById('estado-config-vars');
+  estadoVars.textContent = '';
+  try {
+    const res = await fetch('/config');
+    const d = await res.json();
+    document.getElementById('cfg-nombre-negocio').value = d.NOMBRE_NEGOCIO || '';
+    document.getElementById('cfg-saludo').value = d.SALUDO_BIENVENIDA || '';
+    document.getElementById('cfg-alias').value = d.ALIAS_TRANSFERENCIA || '';
+    document.getElementById('cfg-color').value = d.DASHBOARD_COLOR || '#4f46e5';
+    document.getElementById('cfg-auto-respuesta').checked = !!d.AUTO_RESPUESTA;
+  } catch (e) {
+    estadoVars.textContent = 'Error cargando: ' + e.message;
+  }
+
+  const estadoKnowledge = document.getElementById('estado-config-knowledge');
+  document.getElementById('cfg-knowledge-texto').value = 'Cargando...';
+  try {
+    const res = await fetch('/config/knowledge');
+    _knowledgeCache = await res.json();
+    cambiarArchivoKnowledge();
+  } catch (e) {
+    estadoKnowledge.textContent = 'Error cargando: ' + e.message;
+  }
+}
+
+function cambiarArchivoKnowledge() {
+  const archivo = document.getElementById('cfg-archivo').value;
+  document.getElementById('cfg-knowledge-texto').value = _knowledgeCache[archivo] || '';
+  document.getElementById('estado-config-knowledge').textContent = '';
+}
+
+async function guardarConfiguracion() {
+  const estado = document.getElementById('estado-config-vars');
+  estado.textContent = 'Guardando...';
+  try {
+    await _postConfig('/config', {
+      NOMBRE_NEGOCIO: document.getElementById('cfg-nombre-negocio').value.trim(),
+      SALUDO_BIENVENIDA: document.getElementById('cfg-saludo').value.trim(),
+      ALIAS_TRANSFERENCIA: document.getElementById('cfg-alias').value.trim(),
+      DASHBOARD_COLOR: document.getElementById('cfg-color').value,
+      AUTO_RESPUESTA: document.getElementById('cfg-auto-respuesta').checked,
+    });
+    estado.textContent = 'Guardado ✓';
+    cargarBranding();
+  } catch (e) {
+    estado.textContent = 'Error: ' + e.message;
+  }
+}
+
+async function guardarKnowledge() {
+  const archivo = document.getElementById('cfg-archivo').value;
+  const contenido = document.getElementById('cfg-knowledge-texto').value;
+  const estado = document.getElementById('estado-config-knowledge');
+  estado.textContent = 'Guardando...';
+  try {
+    await _postConfig(`/config/knowledge/${encodeURIComponent(archivo)}`, { contenido });
+    _knowledgeCache[archivo] = contenido;
+    estado.textContent = 'Guardado ✓';
+  } catch (e) {
+    estado.textContent = 'Error: ' + e.message;
+  }
 }
 
 // ── INIT ──────────────────────────────────────────────────────────────────────
