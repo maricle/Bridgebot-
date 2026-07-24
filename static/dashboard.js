@@ -78,11 +78,14 @@ async function togglePausa() {
 }
 
 // ── TABS ──────────────────────────────────────────────────────────────────────
+const _TAB_TITULOS = { analytics: 'Analytics', historial: 'Historial', archivos: 'Archivos', config: 'Configuración' };
+
 function switchTab(tab) {
   document.querySelectorAll('.tab-panel').forEach(p => p.classList.remove('active'));
-  document.querySelectorAll('.tab-btn').forEach(b => b.classList.remove('active'));
+  document.querySelectorAll('#accordionSidebar .nav-item').forEach(li => li.classList.remove('active'));
   document.getElementById('panel-' + tab).classList.add('active');
-  event.target.classList.add('active');
+  document.getElementById('navitem-' + tab).classList.add('active');
+  document.getElementById('page-heading').textContent = _TAB_TITULOS[tab] || '';
   document.getElementById('filtro-analytics').style.display = tab === 'analytics' ? 'flex' : 'none';
   if (tab === 'archivos') cargarArchivos();
   if (tab === 'historial') cargarHistorialReciente(true);

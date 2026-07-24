@@ -4,171 +4,247 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title id="page-title">BridgeBot Dashboard</title>
+<link href="https://cdn.jsdelivr.net/gh/StartBootstrap/startbootstrap-sb-admin-2@4.1.4/vendor/fontawesome-free/css/all.min.css" rel="stylesheet">
+<link href="https://cdn.jsdelivr.net/gh/StartBootstrap/startbootstrap-sb-admin-2@4.1.4/css/sb-admin-2.min.css" rel="stylesheet">
 <link rel="stylesheet" href="/static/dashboard.css">
-<script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
 </head>
-<body>
+<body id="page-top">
 
-<header>
-  <h1 id="app-title">BridgeBot</h1>
-  <div class="tabs">
-    <button class="tab-btn active" onclick="switchTab('analytics')">Analytics</button>
-    <button class="tab-btn" onclick="switchTab('historial')">Historial</button>
-    <button class="tab-btn" onclick="switchTab('archivos')">Archivos</button>
-    <button class="tab-btn" onclick="switchTab('config')">Configuración</button>
-  </div>
-  <div class="filtro" id="filtro-analytics">
-    <label>Desde</label>
-    <input type="date" id="desde">
-    <label>Hasta</label>
-    <input type="date" id="hasta">
-    <button onclick="cargarAnalytics()">Aplicar</button>
-  </div>
-</header>
+<div id="wrapper">
 
-<main>
+  <!-- ── SIDEBAR ── -->
+  <ul class="navbar-nav bg-gradient-primary sidebar sidebar-dark accordion" id="accordionSidebar">
+    <a class="sidebar-brand d-flex align-items-center justify-content-center" href="#">
+      <div class="sidebar-brand-icon"><i class="fas fa-robot"></i></div>
+      <div class="sidebar-brand-text mx-3" id="app-title">BridgeBot</div>
+    </a>
+    <hr class="sidebar-divider my-0">
 
-  <!-- ── ANALYTICS ── -->
-  <div class="tab-panel active" id="panel-analytics">
-    <p class="estado" id="estado-analytics">Cargando...</p>
-    <div class="cards">
-      <div class="card">
-        <div class="label">Clientes atendidos</div>
-        <div class="value" id="c-total">—</div>
-        <div class="sub" id="c-periodo">en el período</div>
-      </div>
-      <div class="card green">
-        <div class="label">Consultaron precio</div>
-        <div class="value" id="c-pct">—</div>
-        <div class="sub" id="c-precio-n">— clientes</div>
-      </div>
-      <div class="card amber">
-        <div class="label">Leads generados</div>
-        <div class="value" id="c-leads">—</div>
-        <div class="sub" id="c-conv">conversión sobre atendidos</div>
-      </div>
+    <li class="nav-item active" id="navitem-analytics">
+      <a class="nav-link" href="#" onclick="switchTab('analytics'); return false;">
+        <i class="fas fa-fw fa-chart-area"></i><span>Analytics</span>
+      </a>
+    </li>
+    <li class="nav-item" id="navitem-historial">
+      <a class="nav-link" href="#" onclick="switchTab('historial'); return false;">
+        <i class="fas fa-fw fa-comments"></i><span>Historial</span>
+      </a>
+    </li>
+    <li class="nav-item" id="navitem-archivos">
+      <a class="nav-link" href="#" onclick="switchTab('archivos'); return false;">
+        <i class="fas fa-fw fa-folder-open"></i><span>Archivos</span>
+      </a>
+    </li>
+    <li class="nav-item" id="navitem-config">
+      <a class="nav-link" href="#" onclick="switchTab('config'); return false;">
+        <i class="fas fa-fw fa-cog"></i><span>Configuración</span>
+      </a>
+    </li>
+
+    <hr class="sidebar-divider d-none d-md-block">
+    <div class="text-center d-none d-md-inline">
+      <button class="rounded-circle border-0" id="sidebarToggle"></button>
     </div>
-    <div class="charts">
-      <div class="chart-box">
-        <h2>Clientes por día</h2>
-        <canvas id="chartDia"></canvas>
-      </div>
-      <div class="chart-box">
-        <h2>Productos más consultados</h2>
-        <canvas id="chartProd"></canvas>
-      </div>
-    </div>
-  </div>
+  </ul>
+  <!-- ── /SIDEBAR ── -->
 
-  <!-- ── HISTORIAL ── -->
-  <div class="tab-panel" id="panel-historial">
-    <div class="historial-split">
-      <div class="historial-col-lista">
-        <div class="search-bar">
-          <div class="mode-toggle">
-            <button class="mode-btn active" id="mode-tel" onclick="setMode('tel')">Por teléfono</button>
-            <button class="mode-btn" id="mode-txt" onclick="setMode('txt')">Por contenido</button>
+  <div id="content-wrapper" class="d-flex flex-column">
+    <div id="content">
+
+      <!-- ── TOPBAR ── -->
+      <nav class="navbar navbar-expand navbar-light bg-white topbar mb-4 static-top shadow">
+        <button id="sidebarToggleTop" class="btn btn-link d-md-none rounded-circle mr-3">
+          <i class="fa fa-bars"></i>
+        </button>
+        <span class="navbar-text font-weight-bold text-gray-800" id="page-heading">Analytics</span>
+      </nav>
+      <!-- ── /TOPBAR ── -->
+
+      <div class="container-fluid">
+
+        <!-- ── ANALYTICS ── -->
+        <div class="tab-panel active" id="panel-analytics">
+          <div class="d-flex align-items-center flex-wrap mb-3" id="filtro-analytics" style="gap:.6rem">
+            <label class="mb-0">Desde</label>
+            <input type="date" id="desde" class="form-control form-control-sm" style="width:auto">
+            <label class="mb-0">Hasta</label>
+            <input type="date" id="hasta" class="form-control form-control-sm" style="width:auto">
+            <button onclick="cargarAnalytics()" class="btn btn-primary btn-sm">Aplicar</button>
           </div>
-          <input type="tel"  id="input-telefono" placeholder="Número de teléfono (ej: 3794000000)"
-                 onkeydown="if(event.key==='Enter') buscarHistorial()">
-          <input type="text" id="input-contenido" placeholder="Buscar en conversaciones (ej: estado de pedido)"
-                 style="display:none"
-                 onkeydown="if(event.key==='Enter') buscarContenido()">
-          <button class="btn-primary" onclick="ejecutarBusqueda()">Buscar</button>
+          <p class="text-muted small" id="estado-analytics">Cargando...</p>
+
+          <div class="row">
+            <div class="col-xl-4 col-md-6 mb-4">
+              <div class="card border-left-primary shadow h-100 py-2">
+                <div class="card-body">
+                  <div class="text-xs font-weight-bold text-primary text-uppercase mb-1">Clientes atendidos</div>
+                  <div class="h5 mb-0 font-weight-bold text-gray-800" id="c-total">—</div>
+                  <div class="text-xs text-muted mt-1" id="c-periodo">en el período</div>
+                </div>
+              </div>
+            </div>
+            <div class="col-xl-4 col-md-6 mb-4">
+              <div class="card border-left-success shadow h-100 py-2">
+                <div class="card-body">
+                  <div class="text-xs font-weight-bold text-success text-uppercase mb-1">Consultaron precio</div>
+                  <div class="h5 mb-0 font-weight-bold text-gray-800" id="c-pct">—</div>
+                  <div class="text-xs text-muted mt-1" id="c-precio-n">— clientes</div>
+                </div>
+              </div>
+            </div>
+            <div class="col-xl-4 col-md-6 mb-4">
+              <div class="card border-left-warning shadow h-100 py-2">
+                <div class="card-body">
+                  <div class="text-xs font-weight-bold text-warning text-uppercase mb-1">Leads generados</div>
+                  <div class="h5 mb-0 font-weight-bold text-gray-800" id="c-leads">—</div>
+                  <div class="text-xs text-muted mt-1" id="c-conv">conversión sobre atendidos</div>
+                </div>
+              </div>
+            </div>
+          </div>
+
+          <div class="row">
+            <div class="col-lg-7 mb-4">
+              <div class="card shadow">
+                <div class="card-header py-3"><h6 class="m-0 font-weight-bold text-primary">Clientes por día</h6></div>
+                <div class="card-body"><canvas id="chartDia"></canvas></div>
+              </div>
+            </div>
+            <div class="col-lg-5 mb-4">
+              <div class="card shadow">
+                <div class="card-header py-3"><h6 class="m-0 font-weight-bold text-primary">Productos más consultados</h6></div>
+                <div class="card-body"><canvas id="chartProd"></canvas></div>
+              </div>
+            </div>
+          </div>
         </div>
-        <p class="estado" id="estado-historial"></p>
-        <div class="historial-lista-scroll">
-          <div id="lista-resultados" style="display:none"></div>
-          <div id="lista-recientes"></div>
-          <button class="btn-cargar-mas" id="btn-cargar-mas" onclick="cargarHistorialReciente(false)" style="display:none">Cargar más</button>
+
+        <!-- ── HISTORIAL ── -->
+        <div class="tab-panel" id="panel-historial">
+          <div class="row">
+            <div class="col-lg-4 mb-4">
+              <div class="card shadow mb-3">
+                <div class="card-body">
+                  <div class="btn-group w-100 mb-2" role="group">
+                    <button class="btn btn-outline-primary active" id="mode-tel" onclick="setMode('tel')">Por teléfono</button>
+                    <button class="btn btn-outline-primary" id="mode-txt" onclick="setMode('txt')">Por contenido</button>
+                  </div>
+                  <input type="tel" id="input-telefono" class="form-control mb-2" placeholder="Número de teléfono (ej: 3794000000)"
+                         onkeydown="if(event.key==='Enter') buscarHistorial()">
+                  <input type="text" id="input-contenido" class="form-control mb-2" placeholder="Buscar en conversaciones (ej: estado de pedido)"
+                         style="display:none" onkeydown="if(event.key==='Enter') buscarContenido()">
+                  <button class="btn btn-primary btn-block mb-0" onclick="ejecutarBusqueda()">Buscar</button>
+                </div>
+              </div>
+              <p class="text-muted small" id="estado-historial"></p>
+              <div class="historial-lista-scroll">
+                <div id="lista-resultados" style="display:none"></div>
+                <div id="lista-recientes"></div>
+                <button class="btn btn-outline-primary btn-block" id="btn-cargar-mas" onclick="cargarHistorialReciente(false)" style="display:none">Cargar más</button>
+              </div>
+            </div>
+            <div class="col-lg-8 mb-4">
+              <div id="resultado-historial"></div>
+              <div class="reply-box" id="reply-box" style="display:none">
+                <textarea id="reply-texto" class="form-control" placeholder="Escribir respuesta por WhatsApp..."
+                          rows="1" oninput="autoResize(this)"
+                          onkeydown="if(event.key==='Enter'&&!event.shiftKey){event.preventDefault();enviarRespuesta()}"></textarea>
+                <button class="btn btn-primary" id="btn-send" onclick="enviarRespuesta()">Enviar</button>
+              </div>
+            </div>
+          </div>
         </div>
+
+        <!-- ── ARCHIVOS ── -->
+        <div class="tab-panel" id="panel-archivos">
+          <div class="card shadow mb-4">
+            <div class="card-header py-3">
+              <input type="tel" id="filtro-tel-archivos" class="form-control" placeholder="Filtrar por teléfono..." oninput="filtrarArchivos()">
+            </div>
+            <div class="card-body">
+              <p class="text-muted small" id="estado-archivos">Cargando archivos...</p>
+              <div class="table-responsive">
+                <table class="table table-bordered" width="100%" cellspacing="0">
+                  <thead>
+                    <tr><th>Fecha</th><th>Canal</th><th>Tipo</th><th>Cliente</th><th>Teléfono / ID</th><th>Acción</th></tr>
+                  </thead>
+                  <tbody id="tabla-archivos">
+                    <tr><td colspan="6" class="text-center text-muted">Cargando...</td></tr>
+                  </tbody>
+                </table>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <!-- ── CONFIGURACIÓN ── -->
+        <div class="tab-panel" id="panel-config">
+          <div class="row">
+            <div class="col-lg-5 mb-4">
+              <div class="card shadow">
+                <div class="card-header py-3"><h6 class="m-0 font-weight-bold text-primary">Variables</h6></div>
+                <div class="card-body">
+                  <div class="form-group">
+                    <label for="cfg-nombre-negocio">Nombre del negocio</label>
+                    <input type="text" id="cfg-nombre-negocio" class="form-control" placeholder="BridgeBot">
+                  </div>
+                  <div class="form-group">
+                    <label for="cfg-saludo">Saludo de bienvenida</label>
+                    <input type="text" id="cfg-saludo" class="form-control" placeholder="¡Hola! 👋 ¿En qué te puedo ayudar hoy?">
+                  </div>
+                  <div class="form-group">
+                    <label for="cfg-alias">Alias de transferencia</label>
+                    <input type="text" id="cfg-alias" class="form-control" placeholder="tuempresa.mp">
+                  </div>
+                  <div class="form-group">
+                    <label for="cfg-color">Color del dashboard</label>
+                    <input type="color" id="cfg-color" class="form-control">
+                  </div>
+                  <div class="form-group form-check">
+                    <input type="checkbox" class="form-check-input" id="cfg-auto-respuesta">
+                    <label class="form-check-label" for="cfg-auto-respuesta">Modo AUTO_RESPUESTA (solo saluda, no llama a Claude ni da precios)</label>
+                  </div>
+                  <button class="btn btn-primary" onclick="guardarConfiguracion()">Guardar variables</button>
+                  <p class="text-muted small mt-2 mb-0" id="estado-config-vars"></p>
+                </div>
+              </div>
+            </div>
+            <div class="col-lg-7 mb-4">
+              <div class="card shadow">
+                <div class="card-header py-3"><h6 class="m-0 font-weight-bold text-primary">Base de conocimiento</h6></div>
+                <div class="card-body">
+                  <select id="cfg-archivo" class="form-control mb-2" onchange="cambiarArchivoKnowledge()">
+                    <option value="agente.md">agente.md</option>
+                    <option value="conocimiento.md">conocimiento.md</option>
+                    <option value="01_reglas_comerciales.md">01_reglas_comerciales.md</option>
+                    <option value="areas.json">areas.json</option>
+                    <option value="precios.md">precios.md</option>
+                  </select>
+                  <textarea id="cfg-knowledge-texto" class="form-control" rows="18" spellcheck="false" placeholder="Cargando..."></textarea>
+                  <button class="btn btn-primary mt-2" onclick="guardarKnowledge()">Guardar archivo</button>
+                  <p class="text-muted small mt-2 mb-0" id="estado-config-knowledge"></p>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+
       </div>
-      <div class="historial-col-detalle">
-        <div id="resultado-historial"></div>
-        <div class="reply-box" id="reply-box" style="display:none">
-          <textarea id="reply-texto" placeholder="Escribir respuesta por WhatsApp..."
-                    rows="1" oninput="autoResize(this)"
-                    onkeydown="if(event.key==='Enter'&&!event.shiftKey){event.preventDefault();enviarRespuesta()}"></textarea>
-          <button class="btn-send" id="btn-send" onclick="enviarRespuesta()">Enviar</button>
-        </div>
-      </div>
+      <!-- /.container-fluid -->
     </div>
+    <!-- /#content -->
   </div>
+  <!-- /#content-wrapper -->
+</div>
+<!-- /#wrapper -->
 
-  <!-- ── ARCHIVOS ── -->
-  <div class="tab-panel" id="panel-archivos">
-    <div class="search-bar" style="margin-bottom:1rem">
-      <input type="tel" id="filtro-tel-archivos" placeholder="Filtrar por teléfono..."
-             oninput="filtrarArchivos()">
-    </div>
-    <p class="estado" id="estado-archivos">Cargando archivos...</p>
-    <div class="tabla-wrap">
-      <table>
-        <thead>
-          <tr>
-            <th>Fecha</th>
-            <th>Canal</th>
-            <th>Tipo</th>
-            <th>Cliente</th>
-            <th>Teléfono / ID</th>
-            <th>Acción</th>
-          </tr>
-        </thead>
-        <tbody id="tabla-archivos">
-          <tr><td colspan="6" class="empty">Cargando...</td></tr>
-        </tbody>
-      </table>
-    </div>
-  </div>
+<a class="scroll-to-top rounded" href="#page-top"><i class="fas fa-angle-up"></i></a>
 
-  <!-- ── CONFIGURACIÓN ── -->
-  <div class="tab-panel" id="panel-config">
-    <div class="config-split">
-      <div class="config-col">
-        <h2>Variables</h2>
-        <div class="config-form">
-          <label for="cfg-nombre-negocio">Nombre del negocio</label>
-          <input type="text" id="cfg-nombre-negocio" placeholder="BridgeBot">
-
-          <label for="cfg-saludo">Saludo de bienvenida</label>
-          <input type="text" id="cfg-saludo" placeholder="¡Hola! 👋 ¿En qué te puedo ayudar hoy?">
-
-          <label for="cfg-alias">Alias de transferencia</label>
-          <input type="text" id="cfg-alias" placeholder="tuempresa.mp">
-
-          <label for="cfg-color">Color del dashboard</label>
-          <input type="color" id="cfg-color">
-
-          <label class="config-checkbox">
-            <input type="checkbox" id="cfg-auto-respuesta">
-            Modo AUTO_RESPUESTA (solo saluda, no llama a Claude ni da precios)
-          </label>
-
-          <button class="btn-primary" onclick="guardarConfiguracion()">Guardar variables</button>
-          <p class="estado" id="estado-config-vars"></p>
-        </div>
-      </div>
-      <div class="config-col">
-        <h2>Base de conocimiento</h2>
-        <div class="config-knowledge">
-          <select id="cfg-archivo" onchange="cambiarArchivoKnowledge()">
-            <option value="agente.md">agente.md</option>
-            <option value="conocimiento.md">conocimiento.md</option>
-            <option value="01_reglas_comerciales.md">01_reglas_comerciales.md</option>
-            <option value="areas.json">areas.json</option>
-            <option value="precios.md">precios.md</option>
-          </select>
-          <textarea id="cfg-knowledge-texto" rows="18" spellcheck="false"
-                    placeholder="Cargando..."></textarea>
-          <button class="btn-primary" onclick="guardarKnowledge()">Guardar archivo</button>
-          <p class="estado" id="estado-config-knowledge"></p>
-        </div>
-      </div>
-    </div>
-  </div>
-
-</main>
-
+<script src="https://cdn.jsdelivr.net/gh/StartBootstrap/startbootstrap-sb-admin-2@4.1.4/vendor/jquery/jquery.min.js"></script>
+<script src="https://cdn.jsdelivr.net/gh/StartBootstrap/startbootstrap-sb-admin-2@4.1.4/vendor/bootstrap/js/bootstrap.bundle.min.js"></script>
+<script src="https://cdn.jsdelivr.net/gh/StartBootstrap/startbootstrap-sb-admin-2@4.1.4/vendor/jquery-easing/jquery.easing.min.js"></script>
+<script src="https://cdn.jsdelivr.net/gh/StartBootstrap/startbootstrap-sb-admin-2@4.1.4/js/sb-admin-2.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
 <script src="/static/dashboard.js"></script>
 </body>
 </html>
