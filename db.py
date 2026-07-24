@@ -63,6 +63,11 @@ _CREATE_TABLES = [
         sale_order_name  TEXT DEFAULT '',
         synced_at        TEXT DEFAULT (datetime('now'))
     )""",
+    """CREATE TABLE IF NOT EXISTS configuracion (
+        clave          TEXT PRIMARY KEY,
+        valor          TEXT NOT NULL DEFAULT '',
+        actualizado_en TEXT DEFAULT (datetime('now'))
+    )""",
 ]
 
 
@@ -601,3 +606,24 @@ async def buscar_cliente_odoo_por_telefono(telefono: str) -> dict | None:
         (f"%{sufijo}",),
     )
     return rows[0] if rows else None
+
+
+# ─── CONFIGURACIÓN (panel de admin) ───────────────────────────────────────────
+
+async def obtener_config(clave: str) -> str | None:
+    """Override guardado desde el panel de configuración, o None si no existe."""
+    rows = await _query("SELECT valor FROM configuracion WHERE clave = ?", (clave,))
+    return rows[0]["valor"] if rows else None
+
+
+async def obtener_config_todas() -> dict[str, str]:
+    rows = await _query("SELECT clave, valor FROM configuracion")
+    return {r["clave"]: r["valor"] for r in rows}
+
+
+async def guardar_config(clave: str, valor: str):
+    await _run(
+        """INSERT INTO configuracion (clave, valor, actualizado_en) VALUES (?, ?, datetime('now'))
+           ON CONFLICT(clave) DO UPDATE SET valor = excluded.valor, actualizado_en = excluded.actualizado_en""",
+        (clave, valor),
+    )

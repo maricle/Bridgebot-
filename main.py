@@ -15,9 +15,8 @@ from fastapi.staticfiles import StaticFiles
 
 import instagram
 import whatsapp
-from config import (ALIAS_TRANSFERENCIA, AUTO_RESPUESTA, BRIDGE_API_KEY, EXCLUIR_BOT,
-                    IG_ACCOUNT_ID, ODOO_URL, SALUDO, VERIFY_TOKEN,
-                    WA_MSG_ORDEN_CONFIRMADA, WA_MSG_TRABAJO_LISTO)
+from config import (BRIDGE_API_KEY, EXCLUIR_BOT, IG_ACCOUNT_ID, ODOO_URL,
+                    VERIFY_TOKEN, WA_MSG_ORDEN_CONFIRMADA, WA_MSG_TRABAJO_LISTO)
 from db import (buscar_cliente_odoo_por_id, buscar_cliente_odoo_por_telefono,
                 buscar_en_historial, buscar_usuario_por_telefono,
                 conversacion_cerrada, es_usuario_nuevo, guardar_archivo,
@@ -42,14 +41,17 @@ _TIPOS_MEDIA_SIN_RESPUESTA = {"image", "sticker"}
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
+    import config as _config
     from config import ANTHROPIC_API_KEY
     from precios import cargar as cargar_precios
     await init_db()
+    await _config.recargar_configuracion()
+    await _config.recargar_conocimiento()
     await cargar_precios()
     t1 = asyncio.create_task(_refresh_precios_loop())
     t2 = asyncio.create_task(_sync_clientes_loop())
     t3 = asyncio.create_task(_sync_tareas_loop())
-    modo = "AUTO_RESPUESTA" if AUTO_RESPUESTA else "CLAUDE"
+    modo = "AUTO_RESPUESTA" if _config.AUTO_RESPUESTA else "CLAUDE"
     log.info("BridgeBot v5 iniciado — modo: %s", modo)
     log.info("Claude configurado: %s", "SI" if ANTHROPIC_API_KEY else "NO")
     yield
@@ -183,6 +185,7 @@ async def procesar_instagram(data: dict):
 
             log.info("IG user=%s: %s", sender_id, mensaje[:100])
             async with httpx.AsyncClient() as client:
+                from config import AUTO_RESPUESTA, SALUDO
                 if AUTO_RESPUESTA:
                     canonical = await obtener_canonical_id(sender_id)
                     await guardar_mensaje(canonical, "user", mensaje)
@@ -272,6 +275,7 @@ async def procesar_whatsapp(data: dict):
 
             log.info("WA user=%s: %s", sender_id, mensaje[:100])
             async with httpx.AsyncClient() as client:
+                from config import AUTO_RESPUESTA, SALUDO
                 if AUTO_RESPUESTA:
                     canonical = await obtener_canonical_id(sender_id)
                     await guardar_mensaje(canonical, "user", mensaje)
@@ -350,6 +354,17 @@ async def sync_tareas_manual():
     return {"ok": True, "tareas_sincronizadas": len(tareas)}
 
 
+@app.get("/sync-clientes")
+async def sync_clientes_manual():
+    """Fuerza la sincronización de clientes de Odoo (misma que corre cada 24h)."""
+    from odoo_crm import sincronizar_clientes
+    from db import upsert_clientes_odoo
+    clientes = await sincronizar_clientes()
+    if clientes:
+        await upsert_clientes_odoo(clientes)
+    return {"ok": True, "clientes_sincronizados": len(clientes)}
+
+
 @app.get("/actualizar-precios")
 async def actualizar_precios():
     from precios import cargar as cargar_precios, obtener
@@ -364,7 +379,7 @@ async def actualizar_precios():
 
 @app.get("/health")
 async def health():
-    from config import WA_ACCESS_TOKEN, WA_PHONE_ID
+    from config import AUTO_RESPUESTA, WA_ACCESS_TOKEN, WA_PHONE_ID
     wa_ok = False
     wa_numero = None
     if WA_ACCESS_TOKEN and WA_PHONE_ID:
@@ -402,6 +417,64 @@ async def dashboard():
 async def dashboard_config():
     from config import DASHBOARD_COLOR, NOMBRE_NEGOCIO
     return {"nombre": NOMBRE_NEGOCIO, "color": DASHBOARD_COLOR}
+
+
+_CONFIG_CLAVES = {
+    "SALUDO_BIENVENIDA", "AUTO_RESPUESTA", "ALIAS_TRANSFERENCIA",
+    "NOMBRE_NEGOCIO", "DASHBOARD_COLOR",
+}
+
+
+@app.get("/config")
+async def obtener_configuracion():
+    from config import (ALIAS_TRANSFERENCIA, AUTO_RESPUESTA, DASHBOARD_COLOR,
+                        NOMBRE_NEGOCIO, SALUDO)
+    return {
+        "SALUDO_BIENVENIDA": SALUDO,
+        "AUTO_RESPUESTA": AUTO_RESPUESTA,
+        "ALIAS_TRANSFERENCIA": ALIAS_TRANSFERENCIA,
+        "NOMBRE_NEGOCIO": NOMBRE_NEGOCIO,
+        "DASHBOARD_COLOR": DASHBOARD_COLOR,
+    }
+
+
+@app.post("/config")
+async def guardar_configuracion(request: Request):
+    await _verificar_api_key(request)
+    body = await request.json()
+    from db import guardar_config
+    for clave in _CONFIG_CLAVES:
+        if clave in body:
+            await guardar_config(f"config:{clave}", str(body[clave]))
+    import config as _config
+    await _config.recargar_configuracion()
+    return {"ok": True}
+
+
+@app.get("/config/knowledge")
+async def obtener_knowledge():
+    import config as _config
+    return await _config.obtener_knowledge_efectivo()
+
+
+@app.post("/config/knowledge/{archivo}")
+async def guardar_knowledge(archivo: str, request: Request):
+    import config as _config
+    if archivo not in _config.KNOWLEDGE_ARCHIVOS:
+        raise HTTPException(status_code=400, detail="Archivo no permitido")
+    await _verificar_api_key(request)
+    body = await request.json()
+    contenido = body.get("contenido", "")
+
+    from db import guardar_config
+    await guardar_config(f"knowledge:{archivo}", contenido)
+
+    if archivo == "precios.md":
+        from precios import cargar as cargar_precios
+        await cargar_precios()
+    else:
+        await _config.recargar_conocimiento()
+    return {"ok": True}
 
 
 @app.get("/analytics")
@@ -632,6 +705,7 @@ async def webhook_orden_confirmada(request: Request):
             monto = monto if monto is not None else orden.get("amount_total")
             access_url = access_url or orden.get("access_url") or ""
 
+    from config import ALIAS_TRANSFERENCIA
     monto_fmt = _formatear_monto(monto)
     link = f"{ODOO_URL}{access_url}" if access_url else ""
     telefono, nombre = await _extraer_cliente(payload)

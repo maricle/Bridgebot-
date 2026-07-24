@@ -151,7 +151,7 @@ main { padding: 1.5rem 2rem; max-width: 1300px; margin: 0 auto; }
   transition: border-color .15s;
 }
 .search-bar input:focus { border-color: var(--accent); }
-.search-bar .btn-primary {
+.btn-primary {
   background: var(--accent);
   color: white;
   border: none;
@@ -161,7 +161,7 @@ main { padding: 1.5rem 2rem; max-width: 1300px; margin: 0 auto; }
   font-size: 1rem;
   cursor: pointer;
 }
-.search-bar .btn-primary:hover { opacity: .88; }
+.btn-primary:hover { opacity: .88; }
 
 .mode-toggle { display: flex; border-radius: 8px; overflow: hidden; border: 1.5px solid var(--border); }
 .mode-btn {
@@ -312,9 +312,85 @@ tr:hover td { background: #f8fafc; }
 .dl-btn:hover { opacity: .85; }
 .no-url { color: var(--muted); font-size: .8rem; }
 
+/* ── CONFIGURACIÓN ── */
+.config-split {
+  display: grid;
+  grid-template-columns: 1fr 1.4fr;
+  gap: 1.5rem;
+  align-items: start;
+}
+.config-col {
+  background: var(--card);
+  border-radius: 12px;
+  padding: 1.3rem 1.5rem;
+  box-shadow: 0 1px 4px rgba(0,0,0,.07);
+}
+.config-col h2 {
+  font-size: .95rem;
+  font-weight: 700;
+  color: var(--muted);
+  text-transform: uppercase;
+  letter-spacing: .05em;
+  margin-bottom: 1rem;
+}
+.config-form, .config-knowledge { display: flex; flex-direction: column; gap: .4rem; }
+.config-form label { font-size: .82rem; font-weight: 600; color: var(--muted); margin-top: .6rem; }
+.config-form label:first-child { margin-top: 0; }
+.config-form input[type="text"] {
+  padding: .55rem .8rem;
+  border-radius: 8px;
+  border: 1.5px solid var(--border);
+  font-size: .95rem;
+  color: var(--text);
+  outline: none;
+}
+.config-form input[type="text"]:focus { border-color: var(--accent); }
+.config-form input[type="color"] {
+  width: 100%;
+  height: 40px;
+  padding: 2px;
+  border-radius: 8px;
+  border: 1.5px solid var(--border);
+  cursor: pointer;
+}
+.config-checkbox {
+  display: flex !important;
+  align-items: center;
+  gap: .5rem;
+  flex-direction: row !important;
+  font-size: .88rem !important;
+  color: var(--text) !important;
+  font-weight: 500 !important;
+  cursor: pointer;
+}
+.config-checkbox input { width: 16px; height: 16px; cursor: pointer; }
+.config-form .btn-primary, .config-knowledge .btn-primary { margin-top: 1rem; align-self: flex-start; }
+.config-knowledge select {
+  padding: .55rem .8rem;
+  border-radius: 8px;
+  border: 1.5px solid var(--border);
+  font-size: .9rem;
+  color: var(--text);
+  background: white;
+}
+.config-knowledge textarea {
+  padding: .8rem;
+  border-radius: 8px;
+  border: 1.5px solid var(--border);
+  font-family: ui-monospace, SFMono-Regular, Consolas, monospace;
+  font-size: .85rem;
+  line-height: 1.5;
+  color: var(--text);
+  resize: vertical;
+  min-height: 320px;
+  outline: none;
+}
+.config-knowledge textarea:focus { border-color: var(--accent); }
+
 /* ── RESPONSIVE ── */
 @media (max-width: 800px) {
   main { padding: 1rem; }
   .charts { grid-template-columns: 1fr; }
   header { flex-direction: column; align-items: flex-start; }
+  .config-split { grid-template-columns: 1fr; }
 }

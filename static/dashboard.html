@@ -15,6 +15,7 @@
     <button class="tab-btn active" onclick="switchTab('analytics')">Analytics</button>
     <button class="tab-btn" onclick="switchTab('historial')">Historial</button>
     <button class="tab-btn" onclick="switchTab('archivos')">Archivos</button>
+    <button class="tab-btn" onclick="switchTab('config')">Configuración</button>
   </div>
   <div class="filtro" id="filtro-analytics">
     <label>Desde</label>
@@ -117,6 +118,52 @@
           <tr><td colspan="6" class="empty">Cargando...</td></tr>
         </tbody>
       </table>
+    </div>
+  </div>
+
+  <!-- ── CONFIGURACIÓN ── -->
+  <div class="tab-panel" id="panel-config">
+    <div class="config-split">
+      <div class="config-col">
+        <h2>Variables</h2>
+        <div class="config-form">
+          <label for="cfg-nombre-negocio">Nombre del negocio</label>
+          <input type="text" id="cfg-nombre-negocio" placeholder="BridgeBot">
+
+          <label for="cfg-saludo">Saludo de bienvenida</label>
+          <input type="text" id="cfg-saludo" placeholder="¡Hola! 👋 ¿En qué te puedo ayudar hoy?">
+
+          <label for="cfg-alias">Alias de transferencia</label>
+          <input type="text" id="cfg-alias" placeholder="tuempresa.mp">
+
+          <label for="cfg-color">Color del dashboard</label>
+          <input type="color" id="cfg-color">
+
+          <label class="config-checkbox">
+            <input type="checkbox" id="cfg-auto-respuesta">
+            Modo AUTO_RESPUESTA (solo saluda, no llama a Claude ni da precios)
+          </label>
+
+          <button class="btn-primary" onclick="guardarConfiguracion()">Guardar variables</button>
+          <p class="estado" id="estado-config-vars"></p>
+        </div>
+      </div>
+      <div class="config-col">
+        <h2>Base de conocimiento</h2>
+        <div class="config-knowledge">
+          <select id="cfg-archivo" onchange="cambiarArchivoKnowledge()">
+            <option value="agente.md">agente.md</option>
+            <option value="conocimiento.md">conocimiento.md</option>
+            <option value="01_reglas_comerciales.md">01_reglas_comerciales.md</option>
+            <option value="areas.json">areas.json</option>
+            <option value="precios.md">precios.md</option>
+          </select>
+          <textarea id="cfg-knowledge-texto" rows="18" spellcheck="false"
+                    placeholder="Cargando..."></textarea>
+          <button class="btn-primary" onclick="guardarKnowledge()">Guardar archivo</button>
+          <p class="estado" id="estado-config-knowledge"></p>
+        </div>
+      </div>
     </div>
   </div>
 

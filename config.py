@@ -39,6 +39,77 @@ BOT_NOMBRE = os.environ.get("BOT_NOMBRE", "Asistente")
 NOMBRE_NEGOCIO   = os.environ.get("NOMBRE_NEGOCIO", "BridgeBot")
 DASHBOARD_COLOR  = os.environ.get("DASHBOARD_COLOR", "#4f46e5")
 
+# ─── PANEL DE CONFIGURACIÓN (overrides guardados en DB) ───────────────────────
+# Variables editables desde /dashboard sin pasar por Railway. El valor de arriba
+# (env var) es el default; si hay un override guardado desde el panel, gana ese.
+KNOWLEDGE_ARCHIVOS = ["agente.md", "conocimiento.md", "01_reglas_comerciales.md", "areas.json", "precios.md"]
+
+
+async def recargar_configuracion():
+    """Vuelve a leer los overrides de configuracion (tabla `configuracion`, claves
+    `config:*`) y actualiza las variables en memoria. Se llama al arrancar y cada
+    vez que se guarda algo desde el panel — nunca desde el hot path por mensaje."""
+    global SALUDO, ALIAS_TRANSFERENCIA, AUTO_RESPUESTA, NOMBRE_NEGOCIO, DASHBOARD_COLOR
+    from db import obtener_config_todas
+    overrides = await obtener_config_todas()
+
+    if "config:SALUDO_BIENVENIDA" in overrides:
+        SALUDO = overrides["config:SALUDO_BIENVENIDA"]
+    if "config:ALIAS_TRANSFERENCIA" in overrides:
+        ALIAS_TRANSFERENCIA = overrides["config:ALIAS_TRANSFERENCIA"]
+    if "config:AUTO_RESPUESTA" in overrides:
+        AUTO_RESPUESTA = overrides["config:AUTO_RESPUESTA"].lower() == "true"
+    if "config:NOMBRE_NEGOCIO" in overrides:
+        NOMBRE_NEGOCIO = overrides["config:NOMBRE_NEGOCIO"]
+    if "config:DASHBOARD_COLOR" in overrides:
+        DASHBOARD_COLOR = overrides["config:DASHBOARD_COLOR"]
+
+
+async def recargar_conocimiento():
+    """Vuelve a armar agente.md/conocimiento.md/areas.json a partir de overrides
+    guardados desde el panel (tabla `configuracion`, claves `knowledge:*`), con
+    fallback a los archivos en disco de siempre. No incluye precios.md — ese lo
+    maneja precios.py directamente."""
+    global _agente, _conocimiento, _AREAS_CONFIG, _ARCHIVOS, _AREAS, _FLUJO_CACHE
+    from db import obtener_config
+
+    agente_ov = await obtener_config("knowledge:agente.md")
+    _agente = agente_ov if agente_ov is not None else _leer_archivo("agente.md")
+
+    conocimiento_ov = await obtener_config("knowledge:conocimiento.md")
+    conocimiento_base = conocimiento_ov if conocimiento_ov is not None else _leer_archivo("conocimiento.md")
+    reglas_ov = await obtener_config("knowledge:01_reglas_comerciales.md")
+    reglas = reglas_ov if reglas_ov is not None else _leer_archivo("01_reglas_comerciales.md")
+    _conocimiento = "\n\n---\n\n".join(p for p in [conocimiento_base, reglas] if p)
+
+    areas_ov = await obtener_config("knowledge:areas.json")
+    if areas_ov is not None:
+        import json
+        try:
+            _AREAS_CONFIG = json.loads(areas_ov)
+        except json.JSONDecodeError:
+            pass  # deja la version anterior si el JSON guardado quedo invalido
+    else:
+        _AREAS_CONFIG = _leer_areas()
+    _ARCHIVOS = {a["id"]: a for a in _AREAS_CONFIG.get("archivos", [])}
+    _AREAS    = {a["id"]: a for a in _AREAS_CONFIG.get("areas", [])}
+    _FLUJO_CACHE = {}
+
+
+async def obtener_knowledge_efectivo() -> dict[str, str]:
+    """{archivo: contenido} actual de cada archivo gestionable desde el panel
+    (override de DB si existe, sino el archivo en disco)."""
+    from db import obtener_config
+    from precios import obtener as obtener_precios
+    resultado = {}
+    for nombre in KNOWLEDGE_ARCHIVOS:
+        if nombre == "precios.md":
+            resultado[nombre] = obtener_precios()
+            continue
+        override = await obtener_config(f"knowledge:{nombre}")
+        resultado[nombre] = override if override is not None else _leer_archivo(nombre)
+    return resultado
+
 def _leer_archivo(nombre: str) -> str:
     base_dir = os.path.dirname(os.path.abspath(__file__))
     try:

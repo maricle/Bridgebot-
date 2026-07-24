@@ -86,6 +86,7 @@ function switchTab(tab) {
   document.getElementById('filtro-analytics').style.display = tab === 'analytics' ? 'flex' : 'none';
   if (tab === 'archivos') cargarArchivos();
   if (tab === 'historial') cargarHistorialReciente(true);
+  if (tab === 'config') cargarConfiguracionTab();
 }
 
 // ── ANALYTICS ─────────────────────────────────────────────────────────────────
@@ -359,6 +360,101 @@ async function cargarBranding() {
       document.documentElement.style.setProperty('--accent', d.color);
     }
   } catch (e) { /* mantiene los valores por defecto */ }
+}
+
+// ── CONFIGURACIÓN ─────────────────────────────────────────────────────────────
+let _knowledgeCache = {};
+
+function _pedirApiKey() {
+  const key = prompt('Ingresá la API key (BRIDGE_API_KEY) para guardar cambios de configuración:');
+  if (key) localStorage.setItem('bridgebot_api_key', key);
+  return key;
+}
+
+async function _postConfig(url, body) {
+  let key = localStorage.getItem('bridgebot_api_key');
+  if (!key) key = _pedirApiKey();
+  if (!key) throw new Error('Se necesita la API key para guardar');
+
+  const intentar = (k) => fetch(url, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', 'X-Api-Key': k },
+    body: JSON.stringify(body),
+  });
+
+  let res = await intentar(key);
+  if (res.status === 401) {
+    localStorage.removeItem('bridgebot_api_key');
+    key = _pedirApiKey();
+    if (!key) throw new Error('Se necesita la API key para guardar');
+    res = await intentar(key);
+  }
+  if (!res.ok) throw new Error(`HTTP ${res.status}`);
+  return res.json();
+}
+
+async function cargarConfiguracionTab() {
+  const estadoVars = document.getElementById('estado-config-vars');
+  estadoVars.textContent = '';
+  try {
+    const res = await fetch('/config');
+    const d = await res.json();
+    document.getElementById('cfg-nombre-negocio').value = d.NOMBRE_NEGOCIO || '';
+    document.getElementById('cfg-saludo').value = d.SALUDO_BIENVENIDA || '';
+    document.getElementById('cfg-alias').value = d.ALIAS_TRANSFERENCIA || '';
+    document.getElementById('cfg-color').value = d.DASHBOARD_COLOR || '#4f46e5';
+    document.getElementById('cfg-auto-respuesta').checked = !!d.AUTO_RESPUESTA;
+  } catch (e) {
+    estadoVars.textContent = 'Error cargando: ' + e.message;
+  }
+
+  const estadoKnowledge = document.getElementById('estado-config-knowledge');
+  document.getElementById('cfg-knowledge-texto').value = 'Cargando...';
+  try {
+    const res = await fetch('/config/knowledge');
+    _knowledgeCache = await res.json();
+    cambiarArchivoKnowledge();
+  } catch (e) {
+    estadoKnowledge.textContent = 'Error cargando: ' + e.message;
+  }
+}
+
+function cambiarArchivoKnowledge() {
+  const archivo = document.getElementById('cfg-archivo').value;
+  document.getElementById('cfg-knowledge-texto').value = _knowledgeCache[archivo] || '';
+  document.getElementById('estado-config-knowledge').textContent = '';
+}
+
+async function guardarConfiguracion() {
+  const estado = document.getElementById('estado-config-vars');
+  estado.textContent = 'Guardando...';
+  try {
+    await _postConfig('/config', {
+      NOMBRE_NEGOCIO: document.getElementById('cfg-nombre-negocio').value.trim(),
+      SALUDO_BIENVENIDA: document.getElementById('cfg-saludo').value.trim(),
+      ALIAS_TRANSFERENCIA: document.getElementById('cfg-alias').value.trim(),
+      DASHBOARD_COLOR: document.getElementById('cfg-color').value,
+      AUTO_RESPUESTA: document.getElementById('cfg-auto-respuesta').checked,
+    });
+    estado.textContent = 'Guardado ✓';
+    cargarBranding();
+  } catch (e) {
+    estado.textContent = 'Error: ' + e.message;
+  }
+}
+
+async function guardarKnowledge() {
+  const archivo = document.getElementById('cfg-archivo').value;
+  const contenido = document.getElementById('cfg-knowledge-texto').value;
+  const estado = document.getElementById('estado-config-knowledge');
+  estado.textContent = 'Guardando...';
+  try {
+    await _postConfig(`/config/knowledge/${encodeURIComponent(archivo)}`, { contenido });
+    _knowledgeCache[archivo] = contenido;
+    estado.textContent = 'Guardado ✓';
+  } catch (e) {
+    estado.textContent = 'Error: ' + e.message;
+  }
 }
 
 // ── INIT ──────────────────────────────────────────────────────────────────────
