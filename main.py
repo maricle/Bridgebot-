@@ -692,6 +692,14 @@ async def webhook_odoo(request: Request):
     return {"ok": True, "telefono": telefono, "orden": nro_orden}
 
 
+@app.get("/whatsapp/plantillas")
+async def whatsapp_plantillas(request: Request):
+    """Debug: lista las plantillas de WhatsApp aprobadas en Meta para esta cuenta."""
+    await _verificar_api_key(request)
+    async with httpx.AsyncClient() as client:
+        return await whatsapp.obtener_plantillas(client)
+
+
 @app.post("/odoo/webhook/orden-confirmada")
 async def webhook_orden_confirmada(request: Request):
     """Dispara cuando se confirma una orden de venta (sale.order state=sale)."""

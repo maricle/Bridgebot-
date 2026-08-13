@@ -51,6 +51,37 @@ def extraer_archivos(data: dict) -> tuple[str, list[dict]]:
     return "", []
 
 
+async def obtener_plantillas(client: httpx.AsyncClient) -> dict:
+    """Consulta en Meta las plantillas de mensaje aprobadas para esta cuenta de WhatsApp Business."""
+    if not WA_ACCESS_TOKEN or not WA_PHONE_ID:
+        return {"error": "WA_ACCESS_TOKEN o WA_PHONE_ID no configurados"}
+    headers = {"Authorization": f"Bearer {WA_ACCESS_TOKEN}"}
+    try:
+        r = await client.get(
+            f"https://graph.facebook.com/v19.0/{WA_PHONE_ID}",
+            params={"fields": "whatsapp_business_account"},
+            headers=headers,
+            timeout=15,
+        )
+        r.raise_for_status()
+        waba_id = r.json().get("whatsapp_business_account", {}).get("id")
+        if not waba_id:
+            return {"error": "No se pudo resolver whatsapp_business_account", "detalle": r.json()}
+
+        r2 = await client.get(
+            f"https://graph.facebook.com/v19.0/{waba_id}/message_templates",
+            params={"limit": 100},
+            headers=headers,
+            timeout=15,
+        )
+        r2.raise_for_status()
+        return r2.json()
+    except httpx.HTTPStatusError as e:
+        return {"error": f"HTTP {e.response.status_code}", "detalle": e.response.text}
+    except Exception as e:
+        return {"error": str(e)}
+
+
 async def enviar_mensaje(client: httpx.AsyncClient, recipient_id: str, texto: str) -> bool:
     if MODO_DEV:
         log.info("MODO_DEV activo — mensaje WA NO enviado (simulado) a %s: %s", recipient_id, texto[:80])
