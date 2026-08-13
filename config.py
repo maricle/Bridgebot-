@@ -288,9 +288,8 @@ ALIAS_TRANSFERENCIA = os.environ.get("ALIAS_TRANSFERENCIA", "")
 # Placeholders disponibles: {nombre}, {nro_orden}, {monto}, {link}, {alias} (los últimos tres solo en orden confirmada)
 WA_MSG_ORDEN_CONFIRMADA = os.environ.get(
     "WA_MSG_ORDEN_CONFIRMADA",
-    "Hola {nombre} 👋 Tu pedido *#{nro_orden}* fue registrado correctamente, por un total de *{monto}*.\n\n"
-    "Podés ver el detalle acá: {link}\n\n"
-    "Transferencias a nuestro alias: *{alias}*"
+    "Hola {nombre} 👋 Tu pedido *#{nro_orden}* fue registrado correctamente, por un total de *{monto}*.\n"
+    "Transferencias a nuestro alias para confirmar: *{alias}*"
 )
 WA_MSG_TRABAJO_LISTO = os.environ.get(
     "WA_MSG_TRABAJO_LISTO",
