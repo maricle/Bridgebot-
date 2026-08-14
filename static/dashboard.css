@@ -7,9 +7,14 @@
    primario — está hardcodeado en cada clase. Para que DASHBOARD_COLOR siga
    teniendo efecto, se pisan acá las clases que lo usan. */
 .bg-gradient-primary {
-  background-color: var(--accent) !important;
+  background-color: #1a1d29 !important;
   background-image: none !important;
 }
+#accordionSidebar .nav-item.active .nav-link,
+#accordionSidebar .nav-item .nav-link:hover {
+  color: var(--accent) !important;
+}
+#accordionSidebar .nav-item.active .nav-link i { color: var(--accent) !important; }
 .btn-primary {
   background-color: var(--accent) !important;
   border-color: var(--accent) !important;
@@ -45,8 +50,15 @@ a { color: var(--accent); }
   margin-bottom: 1rem;
   box-shadow: 0 .15rem 1.75rem 0 rgba(58,59,69,.15);
   display: flex;
+  align-items: center;
   gap: 2rem;
   flex-wrap: wrap;
+}
+.cliente-info .ci-avatar {
+  width: 42px; height: 42px; border-radius: 50%;
+  background: #eaecf4; color: #858796;
+  display: flex; align-items: center; justify-content: center;
+  font-size: 1.1rem; flex-shrink: 0;
 }
 .cliente-info .ci-item { font-size: .9rem; }
 .cliente-info .ci-label { color: #858796; font-size: .75rem; text-transform: uppercase; letter-spacing: .05em; }
@@ -68,7 +80,12 @@ a { color: var(--accent); }
 .btn-toggle-pausa:hover { opacity: .85; }
 
 .conversacion {
-  background: #fff;
+  background-color: #efeae2;
+  background-image:
+    radial-gradient(#00000008 1px, transparent 1px),
+    radial-gradient(#00000008 1px, transparent 1px);
+  background-size: 32px 32px;
+  background-position: 0 0, 16px 16px;
   border-radius: .35rem;
   padding: 1.2rem 1.4rem;
   box-shadow: 0 .15rem 1.75rem 0 rgba(58,59,69,.15);
@@ -81,32 +98,45 @@ a { color: var(--accent); }
 .msg {
   max-width: 75%;
   padding: .6rem .9rem;
-  border-radius: 12px;
+  border-radius: 8px;
   font-size: .9rem;
   line-height: 1.5;
   white-space: pre-wrap;
+  box-shadow: 0 1px 1px rgba(0,0,0,.08);
 }
-.msg.user      { align-self: flex-start; background: #eaecf4; border-bottom-left-radius: 4px; }
-.msg.assistant { align-self: flex-end;   background: #d1f4e0; border-bottom-right-radius: 4px; }
-.msg .msg-meta { font-size: .7rem; color: #858796; margin-top: .3rem; }
+.msg.user      { align-self: flex-start; background: #fff;     border-bottom-left-radius: 2px; }
+.msg.assistant { align-self: flex-end;   background: #d9fdd3; border-bottom-right-radius: 2px; }
+.msg .msg-meta { font-size: .7rem; color: #858796; margin-top: .3rem; text-align: right; }
+.check-sent { color: #8696a0; font-weight: 700; }
 
 .resultados-lista { display: flex; flex-direction: column; gap: .5rem; margin-bottom: 1rem; }
 .resultado-card {
   background: #fff;
   border-radius: .35rem;
-  padding: .8rem 1.2rem;
+  padding: .7rem 1rem;
   box-shadow: 0 .1rem .5rem 0 rgba(58,59,69,.1);
   display: flex;
   align-items: center;
-  gap: 1rem;
+  gap: .9rem;
   cursor: pointer;
   border: 1.5px solid transparent;
   transition: border-color .15s;
 }
 .resultado-card:hover { border-color: var(--accent); }
-.resultado-card .rc-nombre { font-weight: 700; font-size: .95rem; }
-.resultado-card .rc-tel { font-size: .82rem; color: #858796; }
-.resultado-card .rc-fecha { margin-left: auto; font-size: .78rem; color: #858796; white-space: nowrap; }
+.resultado-card .rc-avatar {
+  width: 40px; height: 40px; border-radius: 50%; flex-shrink: 0;
+  background: #eaecf4; color: #858796;
+  display: flex; align-items: center; justify-content: center;
+}
+.resultado-card .rc-body { min-width: 0; flex: 1; }
+.resultado-card .rc-top { display: flex; align-items: center; gap: .4rem; }
+.resultado-card .rc-nombre { font-weight: 700; font-size: .92rem; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.resultado-card .rc-fecha { margin-left: auto; font-size: .76rem; color: #858796; white-space: nowrap; }
+.resultado-card .rc-preview {
+  font-size: .82rem; color: #858796; margin-top: .1rem;
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}
+.resultado-card .rc-preview .check-sent { margin-right: .15rem; }
 
 .reply-box { display: flex; gap: .75rem; margin-top: 1rem; align-items: flex-end; }
 .reply-box textarea { resize: none; min-height: 48px; max-height: 140px; }
@@ -123,6 +153,24 @@ a { color: var(--accent); }
 .dl-btn { background: var(--accent); color: white; text-decoration: none; padding: .25rem .7rem; border-radius: 6px; font-size: .8rem; font-weight: 600; white-space: nowrap; }
 .dl-btn:hover { opacity: .85; color: white; }
 .no-url { color: #858796; font-size: .8rem; }
+
+.sidebar { display: flex; flex-direction: column; }
+.sidebar-profile {
+  margin-top: auto;
+  display: flex;
+  align-items: center;
+  gap: .6rem;
+  padding: .9rem 1rem 1.2rem;
+  border-top: 1px solid rgba(255,255,255,.1);
+}
+.sidebar-profile-avatar {
+  width: 34px; height: 34px; border-radius: 50%; flex-shrink: 0;
+  background: var(--accent); color: #fff;
+  display: flex; align-items: center; justify-content: center;
+  font-weight: 700; font-size: .85rem;
+}
+.sidebar-profile-name { color: #fff; font-size: .82rem; font-weight: 600; }
+.sidebar-profile-role { color: rgba(255,255,255,.5); font-size: .72rem; }
 
 #tabla-webhooks .wh-url { font-family: SFMono-Regular, Consolas, monospace; font-size: .82rem; }
 #webhooks-resultado { background: #f8f9fc; border: 1px solid #e3e6f0; border-radius: 6px; padding: .75rem 1rem; font-size: .8rem; white-space: pre-wrap; word-break: break-all; max-height: 320px; overflow-y: auto; }

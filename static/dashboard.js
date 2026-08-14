@@ -41,12 +41,13 @@ function renderConversacion(historial) {
   return historial.map(m => `
     <div class="msg ${m.rol}">
       ${renderContenidoMensaje(m.contenido)}
-      <div class="msg-meta">${m.creado_en || ''}</div>
+      <div class="msg-meta">${m.creado_en || ''}${m.rol === 'assistant' ? ' <span class="check-sent">✓</span>' : ''}</div>
     </div>`).join('');
 }
 function renderClienteInfo(c, userId, pausado) {
   return `
     <div class="cliente-info">
+      <div class="ci-avatar"><i class="fas fa-user"></i></div>
       <div class="ci-item"><div class="ci-label">Nombre</div><div class="ci-val">${escHtml(c.nombre || '—')}</div></div>
       <div class="ci-item"><div class="ci-label">Teléfono</div><div class="ci-val">${escHtml(c.telefono || userId)}</div></div>
       <div class="ci-item"><div class="ci-label">Email</div><div class="ci-val">${escHtml(c.email || '—')}</div></div>
@@ -195,14 +196,19 @@ async function buscarHistorial() {
 }
 
 function renderResultadoCard(r) {
+  const preview = renderContenidoMensaje(r.ultimo_texto || '').replace(/<[^>]+>/g, '').trim();
+  const check = r.ultimo_rol === 'assistant' ? '<span class="check-sent">✓</span> ' : '';
   return `
     <div class="resultado-card" onclick='cargarConversacionDirecta(${JSON.stringify(r.ig_user_id)})'>
-      ${canalBadge(r.canal)}
-      <div>
-        <div class="rc-nombre">${escHtml(r.nombre || '—')}</div>
-        <div class="rc-tel">${escHtml(r.telefono || r.ig_user_id || '—')}</div>
+      <div class="rc-avatar"><i class="fas fa-user"></i></div>
+      <div class="rc-body">
+        <div class="rc-top">
+          <span class="rc-nombre">${escHtml(r.nombre || r.telefono || r.ig_user_id || '—')}</span>
+          ${canalBadge(r.canal)}
+          <span class="rc-fecha">${(r.ultimo_mensaje || '').substring(0, 16).replace('T', ' ')}</span>
+        </div>
+        <div class="rc-preview">${check}${escHtml(preview || 'Sin mensajes')}</div>
       </div>
-      <div class="rc-fecha">${(r.ultimo_mensaje || '').substring(0, 16).replace('T', ' ')}</div>
     </div>`;
 }
 

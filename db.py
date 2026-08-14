@@ -406,7 +406,8 @@ async def buscar_en_historial(texto: str, limite: int = 50) -> list[dict]:
     """Usuarios cuyas conversaciones contienen el texto buscado."""
     return await _query(
         """SELECT DISTINCT h.ig_user_id, u.nombre, u.telefono, u.canal,
-                  MAX(h.creado_en) as ultimo_mensaje
+                  MAX(h.creado_en) as ultimo_mensaje, h.contenido as ultimo_texto,
+                  'user' as ultimo_rol
            FROM historial h
            LEFT JOIN usuarios u ON u.ig_user_id = h.ig_user_id
            WHERE h.rol = 'user' AND LOWER(h.contenido) LIKE LOWER(?)
@@ -422,12 +423,13 @@ async def obtener_conversaciones_recientes(limite: int = 20, offset: int = 0) ->
     Incluye conversaciones sin mensajes del cliente (ej. notificaciones salientes de Odoo
     a alguien que nunca escribió) — no filtra por rol."""
     return await _query(
-        """SELECT DISTINCT h.ig_user_id, u.nombre, u.telefono, u.canal,
-                  MAX(h.creado_en) as ultimo_mensaje
+        """SELECT h.ig_user_id, u.nombre, u.telefono, u.canal,
+                  h.creado_en as ultimo_mensaje, h.contenido as ultimo_texto, h.rol as ultimo_rol
            FROM historial h
+           JOIN (SELECT ig_user_id, MAX(id) as max_id FROM historial GROUP BY ig_user_id) ult
+                ON ult.max_id = h.id
            LEFT JOIN usuarios u ON u.ig_user_id = h.ig_user_id
-           GROUP BY h.ig_user_id
-           ORDER BY ultimo_mensaje DESC
+           ORDER BY h.creado_en DESC
            LIMIT ? OFFSET ?""",
         (limite, offset),
     )
