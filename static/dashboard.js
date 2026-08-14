@@ -5,6 +5,8 @@ let _currentPausado = false;
 let _archivosData  = [];
 let _recientesOffset = 0;
 const _RECIENTES_LIMITE = 20;
+let _canalFiltro = '';
+let _currentCanal = '';
 
 // ── UTILS ─────────────────────────────────────────────────────────────────────
 function hoy() { return new Date().toISOString().split('T')[0]; }
@@ -24,8 +26,8 @@ function canalBadge(canal) {
   if (canal === 'instagram') return '<span class="badge ig">IG</span>';
   return '';
 }
-function esWhatsApp(canal, userId) {
-  return canal === 'whatsapp' || (!canal && /^\d{10,15}$/.test(userId));
+function puedeResponder(canal) {
+  return canal === 'whatsapp' || canal === 'instagram';
 }
 const _ARCHIVO_RE = /^\[Archivo recibido: (\w+)\] (\/archivos\/\d+\/descargar)$/;
 
@@ -61,13 +63,18 @@ function mostrarConversacion(d) {
   _currentUserId = d.user_id;
   _currentPausado = !!d.pausado;
   const c = d.cliente;
+  _currentCanal = c.canal || '';
   document.getElementById('resultado-historial').innerHTML =
     renderClienteInfo(c, d.user_id, _currentPausado) +
     `<div class="conversacion" id="conv-box">${renderConversacion(d.historial)}</div>`;
   const box = document.getElementById('conv-box');
   if (box) box.scrollTop = box.scrollHeight;
-  document.getElementById('reply-box').style.display =
-    esWhatsApp(c.canal, d.user_id) ? 'flex' : 'none';
+  const puedeResp = puedeResponder(_currentCanal);
+  document.getElementById('reply-box').style.display = puedeResp ? 'flex' : 'none';
+  if (puedeResp) {
+    document.getElementById('reply-texto').placeholder =
+      _currentCanal === 'instagram' ? 'Escribir respuesta por Instagram...' : 'Escribir respuesta por WhatsApp...';
+  }
   document.getElementById('reply-texto').value = '';
 }
 async function togglePausa() {
@@ -238,6 +245,12 @@ async function buscarContenido() {
   }
 }
 
+function setCanalFiltro(canal) {
+  _canalFiltro = canal;
+  document.querySelectorAll('.canal-filtro-btn').forEach(b => b.classList.toggle('active', b.dataset.canal === canal));
+  cargarHistorialReciente(true);
+}
+
 async function cargarHistorialReciente(reset) {
   if (reset) {
     _recientesOffset = 0;
@@ -250,7 +263,7 @@ async function cargarHistorialReciente(reset) {
   }
   const btnMas = document.getElementById('btn-cargar-mas');
   try {
-    const res = await fetch(`/historial-reciente?limite=${_RECIENTES_LIMITE}&offset=${_recientesOffset}`);
+    const res = await fetch(`/historial-reciente?limite=${_RECIENTES_LIMITE}&offset=${_recientesOffset}&canal=${_canalFiltro}`);
     if (!res.ok) throw new Error(`HTTP ${res.status}`);
     const data = await res.json();
     if (reset && !data.length) {
@@ -289,7 +302,7 @@ async function enviarRespuesta() {
     const res = await fetch('/responder', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ user_id: _currentUserId, mensaje: texto }),
+      body: JSON.stringify({ user_id: _currentUserId, mensaje: texto, canal: _currentCanal }),
     });
     if (!res.ok) {
       const err = await res.json();

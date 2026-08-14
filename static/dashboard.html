@@ -149,6 +149,11 @@
                   <button class="btn btn-primary btn-block mb-0" onclick="ejecutarBusqueda()">Buscar</button>
                 </div>
               </div>
+              <div class="btn-group w-100 mb-2" role="group">
+                <button class="btn btn-outline-primary btn-sm canal-filtro-btn active" data-canal="" onclick="setCanalFiltro('')">Todos</button>
+                <button class="btn btn-outline-primary btn-sm canal-filtro-btn" data-canal="whatsapp" onclick="setCanalFiltro('whatsapp')">WhatsApp</button>
+                <button class="btn btn-outline-primary btn-sm canal-filtro-btn" data-canal="instagram" onclick="setCanalFiltro('instagram')">Instagram</button>
+              </div>
               <p class="text-muted small" id="estado-historial"></p>
               <div class="historial-lista-scroll">
                 <div id="lista-resultados" style="display:none"></div>

@@ -525,8 +525,8 @@ async def buscar_por_contenido(q: str):
 
 
 @app.get("/historial-reciente")
-async def historial_reciente(limite: int = 20, offset: int = 0):
-    return await obtener_conversaciones_recientes(limite=limite, offset=offset)
+async def historial_reciente(limite: int = 20, offset: int = 0, canal: str = ""):
+    return await obtener_conversaciones_recientes(limite=limite, offset=offset, canal=canal)
 
 
 @app.get("/buscar")
@@ -892,12 +892,21 @@ async def responder_whatsapp(request: Request):
     body = await request.json()
     user_id = body.get("user_id", "").strip()
     mensaje = body.get("mensaje", "").strip()
+    canal = body.get("canal", "").strip()
     if not user_id or not mensaje:
         raise HTTPException(status_code=400, detail="user_id y mensaje son requeridos")
+
+    if not canal:
+        datos = await obtener_datos_cliente(user_id)
+        canal = datos.get("canal", "")
+
     async with httpx.AsyncClient() as client:
-        ok = await whatsapp.enviar_mensaje(client, user_id, mensaje)
+        if canal == "instagram":
+            ok = await instagram.enviar_mensaje(client, user_id, mensaje)
+        else:
+            ok = await whatsapp.enviar_mensaje(client, user_id, mensaje)
     if not ok:
-        raise HTTPException(status_code=502, detail="Error enviando mensaje por WhatsApp")
+        raise HTTPException(status_code=502, detail=f"Error enviando mensaje por {canal or 'WhatsApp'}")
     canonical = await obtener_canonical_id(user_id)
     await guardar_mensaje(canonical, "assistant", mensaje)
     return {"ok": True}
