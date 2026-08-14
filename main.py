@@ -16,7 +16,8 @@ from fastapi.staticfiles import StaticFiles
 import instagram
 import whatsapp
 from config import (BRIDGE_API_KEY, EXCLUIR_BOT, IG_ACCOUNT_ID,
-                    VERIFY_TOKEN, WA_MSG_ORDEN_CONFIRMADA, WA_MSG_TRABAJO_LISTO)
+                    VERIFY_TOKEN, WA_MSG_ORDEN_CONFIRMADA, WA_MSG_TRABAJO_LISTO,
+                    WA_PLANTILLA_TRABAJO_LISTO_OFICINA, WA_PLANTILLA_TRABAJO_LISTO_TALLER)
 from db import (buscar_cliente_odoo_por_id, buscar_cliente_odoo_por_telefono,
                 buscar_en_historial, buscar_usuario_por_telefono,
                 conversacion_cerrada, es_usuario_nuevo, guardar_archivo,
@@ -786,6 +787,73 @@ async def webhook_trabajo_listo(request: Request):
         nota_exito="✅ Cliente notificado: trabajo listo",
     )
     return {"ok": enviado, "telefono": telefono, "orden": nro_orden}
+
+
+async def _procesar_trabajo_listo_sucursal(
+    request: Request, nombre_plantilla: str, idioma: str, direccion: str, alias_texto: str,
+) -> dict:
+    """Común a los webhooks de trabajo-listo por sucursal (Taller/Oficina) —
+    cada sucursal tiene su propia plantilla de Meta, dirección y alias de cobro."""
+    await _verificar_api_key(request)
+    payload = await request.json()
+    log.info("Odoo webhook trabajo-listo (%s) payload: %s", nombre_plantilla, payload)
+
+    sale_order = payload.get("sale_order_id")
+    nro_orden = (
+        payload.get("nro_orden")
+        or payload.get("name")
+        or (sale_order.get("name") if isinstance(sale_order, dict) else None)
+    )
+    order_id = _resolver_order_id(payload)
+    monto = payload.get("amount_total")
+
+    if (not nro_orden or monto is None) and order_id:
+        from odoo_crm import buscar_orden_por_id
+        orden = await buscar_orden_por_id(order_id)
+        if orden:
+            nro_orden = nro_orden or orden.get("name")
+            monto = monto if monto is not None else orden.get("amount_total")
+
+    nro_orden = nro_orden or "—"
+    monto_fmt = _formatear_monto(monto)
+    moneda_simbolo, monto_numero = (monto_fmt[0], monto_fmt[1:]) if monto_fmt else ("$", "—")
+
+    telefono, nombre = await _extraer_cliente(payload)
+    nombre_corto = nombre.split()[0] if nombre else "te"
+
+    mensaje = (
+        f"Hola {nombre_corto},\n\n"
+        f"Tu trabajo *{nro_orden}* ya está listo, podés pasar a retirarlo por {direccion}.\n\n"
+        f"Total de *{moneda_simbolo}{monto_numero}*.\n\n"
+        f"Alias :   {alias_texto}\n"
+        "Enviar comprobante por favor.\n\n"
+        "Gracias."
+    )
+
+    enviado = await _notificar_orden(
+        telefono, mensaje, order_id,
+        nota_exito=f"✅ WhatsApp enviado al cliente (plantilla {nombre_plantilla}):\n{mensaje}",
+        plantilla=(nombre_plantilla, idioma, [nombre_corto, nro_orden, monto_numero, moneda_simbolo]),
+    )
+    return {"ok": enviado, "telefono": telefono, "orden": nro_orden}
+
+
+@app.post("/odoo/webhook/trabajo-listo-taller")
+async def webhook_trabajo_listo_taller(request: Request):
+    """Trabajo listo para retirar en el Taller (16 de julio 980)."""
+    return await _procesar_trabajo_listo_sucursal(
+        request, WA_PLANTILLA_TRABAJO_LISTO_TALLER, "es_AR",
+        "16 de julio 980 (Taller)", "Vhbertoli.mp - Víctor Hugo Bertoli (taller)",
+    )
+
+
+@app.post("/odoo/webhook/trabajo-listo-oficina")
+async def webhook_trabajo_listo_oficina(request: Request):
+    """Trabajo listo para retirar en la Oficina (9 de julio 194)."""
+    return await _procesar_trabajo_listo_sucursal(
+        request, WA_PLANTILLA_TRABAJO_LISTO_OFICINA, "es_AR",
+        "9 de julio 194", "*Gideas.oficina* - Clelia Fernández (oficina)",
+    )
 
 
 @app.post("/odoo/enviar")

@@ -301,3 +301,8 @@ WA_MSG_TRABAJO_LISTO = os.environ.get(
     "Hola {nombre} 👋 Tu pedido *#{nro_orden}* ya está listo. "
     "¡Podés pasar a retirarlo cuando quieras!"
 )
+
+# Nombres de las plantillas de Meta para "trabajo listo" según sucursal —
+# ajustar por env var si el nombre real aprobado difiere del default.
+WA_PLANTILLA_TRABAJO_LISTO_TALLER = os.environ.get("WA_PLANTILLA_TRABAJO_LISTO_TALLER", "trabajo_listo_taller")
+WA_PLANTILLA_TRABAJO_LISTO_OFICINA = os.environ.get("WA_PLANTILLA_TRABAJO_LISTO_OFICINA", "trabajo_listo_oficina")
