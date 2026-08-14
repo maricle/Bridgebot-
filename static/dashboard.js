@@ -87,7 +87,7 @@ async function togglePausa() {
 }
 
 // ── TABS ──────────────────────────────────────────────────────────────────────
-const _TAB_TITULOS = { analytics: 'Analytics', historial: 'Conversaciones', archivos: 'Archivos', config: 'Configuración' };
+const _TAB_TITULOS = { analytics: 'Analytics', historial: 'Conversaciones', archivos: 'Archivos', config: 'Configuración', webhooks: 'Webhooks' };
 
 function switchTab(tab) {
   document.querySelectorAll('.tab-panel').forEach(p => p.classList.remove('active'));
@@ -99,6 +99,7 @@ function switchTab(tab) {
   if (tab === 'archivos') cargarArchivos();
   if (tab === 'historial') cargarHistorialReciente(true);
   if (tab === 'config') cargarConfiguracionTab();
+  if (tab === 'webhooks') pintarUrlsWebhooks();
 }
 
 // ── ANALYTICS ─────────────────────────────────────────────────────────────────
@@ -466,6 +467,71 @@ async function guardarKnowledge() {
     estado.textContent = 'Guardado ✓';
   } catch (e) {
     estado.textContent = 'Error: ' + e.message;
+  }
+}
+
+// ── WEBHOOKS ───────────────────────────────────────────────────────────────────
+function pintarUrlsWebhooks() {
+  document.querySelectorAll('#tabla-webhooks .wh-url').forEach(td => {
+    td.textContent = location.origin + td.dataset.path;
+  });
+}
+
+function _mostrarResultadoWebhooks(texto) {
+  const pre = document.getElementById('webhooks-resultado');
+  pre.style.display = 'block';
+  pre.textContent = texto;
+}
+
+async function sincronizarClientes() {
+  _mostrarResultadoWebhooks('Sincronizando clientes...');
+  try {
+    const res = await fetch('/sync-clientes');
+    const d = await res.json();
+    _mostrarResultadoWebhooks(`Clientes sincronizados: ${d.clientes_sincronizados}`);
+  } catch (e) {
+    _mostrarResultadoWebhooks('Error: ' + e.message);
+  }
+}
+
+async function sincronizarTareas() {
+  _mostrarResultadoWebhooks('Sincronizando tareas...');
+  try {
+    const res = await fetch('/sync-tareas');
+    const d = await res.json();
+    _mostrarResultadoWebhooks(`Tareas sincronizadas: ${d.tareas_sincronizadas}`);
+  } catch (e) {
+    _mostrarResultadoWebhooks('Error: ' + e.message);
+  }
+}
+
+async function actualizarPreciosManual() {
+  _mostrarResultadoWebhooks('Actualizando precios...');
+  try {
+    const res = await fetch('/actualizar-precios');
+    const d = await res.json();
+    _mostrarResultadoWebhooks(JSON.stringify(d, null, 2));
+  } catch (e) {
+    _mostrarResultadoWebhooks('Error: ' + e.message);
+  }
+}
+
+async function verPlantillasWA() {
+  let key = localStorage.getItem('bridgebot_api_key');
+  if (!key) key = _pedirApiKey();
+  if (!key) return;
+  _mostrarResultadoWebhooks('Consultando plantillas...');
+  try {
+    const res = await fetch(`/whatsapp/plantillas?key=${encodeURIComponent(key)}`);
+    const d = await res.json();
+    if (res.status === 401) {
+      localStorage.removeItem('bridgebot_api_key');
+      _mostrarResultadoWebhooks('API key inválida — probá de nuevo.');
+      return;
+    }
+    _mostrarResultadoWebhooks(JSON.stringify(d, null, 2));
+  } catch (e) {
+    _mostrarResultadoWebhooks('Error: ' + e.message);
   }
 }
 
