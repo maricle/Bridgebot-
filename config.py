@@ -285,11 +285,16 @@ BRIDGE_API_KEY = os.environ.get("BRIDGE_API_KEY", "")
 ALIAS_TRANSFERENCIA = os.environ.get("ALIAS_TRANSFERENCIA", "")
 
 # Plantillas de mensajes WA para notificaciones desde Odoo
-# Placeholders disponibles: {nombre}, {nro_orden}, {monto}, {link}, {alias} (los últimos tres solo en orden confirmada)
+# Placeholders disponibles: {nombre}, {nro_orden}, {monto}, {empresa} (los últimos dos solo en orden confirmada)
+# orden confirmada se envía como plantilla de Meta ("presupuesto_2") — este texto es
+# solo el que queda registrado en el historial/chatter, debe reflejar el body aprobado.
 WA_MSG_ORDEN_CONFIRMADA = os.environ.get(
     "WA_MSG_ORDEN_CONFIRMADA",
-    "Hola {nombre} 👋 Tu pedido *#{nro_orden}* fue registrado correctamente, por un total de *{monto}*.\n"
-    "Transferencias a nuestro alias para confirmar: *{alias}*"
+    "Hola {nombre},\n\n"
+    "Te enviamos el presupuesto solicitado, *{nro_orden}* de *{empresa}*, por un total de *{monto}*.\n\n"
+    "Alias :  *Gideas.oficina* - Clelia Fernández (oficina)\n\n"
+    "Enviar comprobante de la seña por favor.\n\n"
+    "Gracias."
 )
 WA_MSG_TRABAJO_LISTO = os.environ.get(
     "WA_MSG_TRABAJO_LISTO",

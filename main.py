@@ -15,7 +15,7 @@ from fastapi.staticfiles import StaticFiles
 
 import instagram
 import whatsapp
-from config import (BRIDGE_API_KEY, EXCLUIR_BOT, IG_ACCOUNT_ID, ODOO_URL,
+from config import (BRIDGE_API_KEY, EXCLUIR_BOT, IG_ACCOUNT_ID,
                     VERIFY_TOKEN, WA_MSG_ORDEN_CONFIRMADA, WA_MSG_TRABAJO_LISTO)
 from db import (buscar_cliente_odoo_por_id, buscar_cliente_odoo_por_telefono,
                 buscar_en_historial, buscar_usuario_por_telefono,
@@ -632,8 +632,14 @@ async def _enviar_notificacion_wa(telefono: str, mensaje: str, nro_orden: str,
         await registrar_nota(odoo_model, odoo_id, f"WhatsApp enviado al cliente:\n{mensaje}")
 
 
-async def _notificar_orden(telefono: str, mensaje: str, order_id: int | None, nota_exito: str) -> bool:
+async def _notificar_orden(
+    telefono: str, mensaje: str, order_id: int | None, nota_exito: str,
+    plantilla: tuple[str, str, list[str]] | None = None,
+) -> bool:
     """Envía el WA y deja constancia en el chatter de la orden (éxito o motivo del fallo).
+
+    Si se pasa `plantilla` (nombre, idioma, parametros) se envía como mensaje de
+    plantilla de Meta en vez de texto libre — necesario fuera de la ventana de 24hs.
 
     Nunca lanza — el webhook de Odoo siempre debe recibir 200, de lo contrario
     Odoo reintenta el envío y se duplican los mensajes al cliente."""
@@ -651,7 +657,11 @@ async def _notificar_orden(telefono: str, mensaje: str, order_id: int | None, no
     enviado = False
     try:
         async with httpx.AsyncClient() as client:
-            enviado = await whatsapp.enviar_mensaje(client, telefono, mensaje)
+            if plantilla:
+                nombre_plantilla, idioma, parametros = plantilla
+                enviado = await whatsapp.enviar_plantilla(client, telefono, nombre_plantilla, idioma, parametros)
+            else:
+                enviado = await whatsapp.enviar_mensaje(client, telefono, mensaje)
     except Exception as e:
         log.error("Error enviando WhatsApp a %s: %s", telefono, e)
 
@@ -722,19 +732,20 @@ async def webhook_orden_confirmada(request: Request):
             monto = monto if monto is not None else orden.get("amount_total")
             access_url = access_url or orden.get("access_url") or ""
 
-    from config import ALIAS_TRANSFERENCIA
+    from config import NOMBRE_NEGOCIO
     monto_fmt = _formatear_monto(monto)
-    link = f"{ODOO_URL}{access_url}" if access_url else ""
+    moneda_simbolo, monto_numero = (monto_fmt[0], monto_fmt[1:]) if monto_fmt else ("$", "—")
     telefono, nombre = await _extraer_cliente(payload)
     nombre_corto = nombre.split()[0] if nombre else "te"
+    empresa = NOMBRE_NEGOCIO or "Grupo Ideas"
     mensaje = WA_MSG_ORDEN_CONFIRMADA.format(
-        nombre=nombre_corto, nro_orden=nro_orden, monto=monto_fmt or "—",
-        link=link or "—", alias=ALIAS_TRANSFERENCIA or "consultar con el equipo",
+        nombre=nombre_corto, nro_orden=nro_orden, monto=monto_fmt or "—", empresa=empresa,
     )
 
     enviado = await _notificar_orden(
         telefono, mensaje, order_id,
-        nota_exito=f"✅ WhatsApp enviado al cliente:\n{mensaje}",
+        nota_exito=f"✅ WhatsApp enviado al cliente (plantilla presupuesto_2):\n{mensaje}",
+        plantilla=("presupuesto_2", "es_AR", [nombre_corto, nro_orden, empresa, moneda_simbolo, monto_numero]),
     )
     return {"ok": enviado, "telefono": telefono, "orden": nro_orden}
 
