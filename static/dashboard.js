@@ -87,7 +87,7 @@ async function togglePausa() {
 }
 
 // ── TABS ──────────────────────────────────────────────────────────────────────
-const _TAB_TITULOS = { analytics: 'Analytics', historial: 'Historial', archivos: 'Archivos', config: 'Configuración' };
+const _TAB_TITULOS = { analytics: 'Analytics', historial: 'Conversaciones', archivos: 'Archivos', config: 'Configuración' };
 
 function switchTab(tab) {
   document.querySelectorAll('.tab-panel').forEach(p => p.classList.remove('active'));
