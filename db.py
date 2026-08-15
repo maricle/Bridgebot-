@@ -338,15 +338,16 @@ async def guardar_datos_cliente(user_id: str, nombre: str = "", telefono: str = 
 
 async def obtener_datos_cliente(user_id: str) -> dict:
     rows = await _query(
-        "SELECT nombre, telefono, email FROM usuarios WHERE ig_user_id = ?", (user_id,)
+        "SELECT nombre, telefono, email, canal FROM usuarios WHERE ig_user_id = ?", (user_id,)
     )
     if rows:
         return {
             "nombre":   rows[0].get("nombre")   or "",
             "telefono": rows[0].get("telefono") or "",
             "email":    rows[0].get("email")    or "",
+            "canal":    rows[0].get("canal")    or "",
         }
-    return {"nombre": "", "telefono": "", "email": ""}
+    return {"nombre": "", "telefono": "", "email": "", "canal": ""}
 
 
 async def conversacion_cerrada(user_id: str) -> bool:
@@ -406,7 +407,8 @@ async def buscar_en_historial(texto: str, limite: int = 50) -> list[dict]:
     """Usuarios cuyas conversaciones contienen el texto buscado."""
     return await _query(
         """SELECT DISTINCT h.ig_user_id, u.nombre, u.telefono, u.canal,
-                  MAX(h.creado_en) as ultimo_mensaje
+                  MAX(h.creado_en) as ultimo_mensaje, h.contenido as ultimo_texto,
+                  'user' as ultimo_rol
            FROM historial h
            LEFT JOIN usuarios u ON u.ig_user_id = h.ig_user_id
            WHERE h.rol = 'user' AND LOWER(h.contenido) LIKE LOWER(?)
@@ -417,19 +419,23 @@ async def buscar_en_historial(texto: str, limite: int = 50) -> list[dict]:
     )
 
 
-async def obtener_conversaciones_recientes(limite: int = 20, offset: int = 0) -> list[dict]:
+async def obtener_conversaciones_recientes(limite: int = 20, offset: int = 0, canal: str = "") -> list[dict]:
     """Últimas conversaciones (una fila por cliente), paginadas por mensaje más reciente.
     Incluye conversaciones sin mensajes del cliente (ej. notificaciones salientes de Odoo
-    a alguien que nunca escribió) — no filtra por rol."""
+    a alguien que nunca escribió) — no filtra por rol. `canal` filtra por 'whatsapp'/'instagram'."""
+    where = "WHERE u.canal = ?" if canal else ""
+    params = (canal, limite, offset) if canal else (limite, offset)
     return await _query(
-        """SELECT DISTINCT h.ig_user_id, u.nombre, u.telefono, u.canal,
-                  MAX(h.creado_en) as ultimo_mensaje
+        f"""SELECT h.ig_user_id, u.nombre, u.telefono, u.canal,
+                  h.creado_en as ultimo_mensaje, h.contenido as ultimo_texto, h.rol as ultimo_rol
            FROM historial h
+           JOIN (SELECT ig_user_id, MAX(id) as max_id FROM historial GROUP BY ig_user_id) ult
+                ON ult.max_id = h.id
            LEFT JOIN usuarios u ON u.ig_user_id = h.ig_user_id
-           GROUP BY h.ig_user_id
-           ORDER BY ultimo_mensaje DESC
+           {where}
+           ORDER BY h.creado_en DESC
            LIMIT ? OFFSET ?""",
-        (limite, offset),
+        params,
     )
 
 

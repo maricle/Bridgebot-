@@ -27,7 +27,7 @@
     </li>
     <li class="nav-item" id="navitem-historial">
       <a class="nav-link" href="#" onclick="switchTab('historial'); return false;">
-        <i class="fas fa-fw fa-comments"></i><span>Historial</span>
+        <i class="fas fa-fw fa-comments"></i><span>Conversaciones</span>
       </a>
     </li>
     <li class="nav-item" id="navitem-archivos">
@@ -40,10 +40,23 @@
         <i class="fas fa-fw fa-cog"></i><span>Configuración</span>
       </a>
     </li>
+    <li class="nav-item" id="navitem-webhooks">
+      <a class="nav-link" href="#" onclick="switchTab('webhooks'); return false;">
+        <i class="fas fa-fw fa-link"></i><span>Webhooks</span>
+      </a>
+    </li>
 
     <hr class="sidebar-divider d-none d-md-block">
     <div class="text-center d-none d-md-inline">
       <button class="rounded-circle border-0" id="sidebarToggle"></button>
+    </div>
+
+    <div class="sidebar-profile">
+      <div class="sidebar-profile-avatar">A</div>
+      <div class="sidebar-profile-info">
+        <div class="sidebar-profile-name">Admin</div>
+        <div class="sidebar-profile-role">Panel de administración</div>
+      </div>
     </div>
   </ul>
   <!-- ── /SIDEBAR ── -->
@@ -136,6 +149,11 @@
                   <button class="btn btn-primary btn-block mb-0" onclick="ejecutarBusqueda()">Buscar</button>
                 </div>
               </div>
+              <div class="btn-group w-100 mb-2" role="group">
+                <button class="btn btn-outline-primary btn-sm canal-filtro-btn active" data-canal="" onclick="setCanalFiltro('')">Todos</button>
+                <button class="btn btn-outline-primary btn-sm canal-filtro-btn" data-canal="whatsapp" onclick="setCanalFiltro('whatsapp')">WhatsApp</button>
+                <button class="btn btn-outline-primary btn-sm canal-filtro-btn" data-canal="instagram" onclick="setCanalFiltro('instagram')">Instagram</button>
+              </div>
               <p class="text-muted small" id="estado-historial"></p>
               <div class="historial-lista-scroll">
                 <div id="lista-resultados" style="display:none"></div>
@@ -216,7 +234,6 @@
                   <select id="cfg-archivo" class="form-control mb-2" onchange="cambiarArchivoKnowledge()">
                     <option value="agente.md">agente.md</option>
                     <option value="conocimiento.md">conocimiento.md</option>
-                    <option value="01_reglas_comerciales.md">01_reglas_comerciales.md</option>
                     <option value="areas.json">areas.json</option>
                     <option value="precios.md">precios.md</option>
                   </select>
@@ -224,6 +241,63 @@
                   <button class="btn btn-primary mt-2" onclick="guardarKnowledge()">Guardar archivo</button>
                   <p class="text-muted small mt-2 mb-0" id="estado-config-knowledge"></p>
                 </div>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <!-- ── WEBHOOKS ── -->
+        <div class="tab-panel" id="panel-webhooks">
+          <div class="card shadow mb-4">
+            <div class="card-header py-3"><h6 class="m-0 font-weight-bold text-primary">Acciones rápidas</h6></div>
+            <div class="card-body">
+              <button class="btn btn-primary btn-sm mr-2" onclick="sincronizarClientes()">Sincronizar clientes ahora</button>
+              <button class="btn btn-primary btn-sm mr-2" onclick="sincronizarTareas()">Sincronizar tareas ahora</button>
+              <button class="btn btn-secondary btn-sm mr-2" onclick="actualizarPreciosManual()">Actualizar precios</button>
+              <button class="btn btn-secondary btn-sm" onclick="verPlantillasWA()">Ver plantillas de WhatsApp (Meta)</button>
+              <pre id="webhooks-resultado" class="mt-3 mb-0" style="display:none"></pre>
+            </div>
+          </div>
+
+          <div class="card shadow mb-4">
+            <div class="card-header py-3"><h6 class="m-0 font-weight-bold text-primary">Endpoints disponibles para Odoo</h6></div>
+            <div class="card-body">
+              <p class="text-muted small">
+                Los <code>POST</code> requieren la API key, ya sea como <code>?key=TU_API_KEY</code> en la URL
+                o header <code>X-Api-Key</code> (así es como los configura el Webhook nativo de Odoo).
+              </p>
+              <div class="table-responsive">
+                <table class="table table-bordered table-sm" width="100%" cellspacing="0">
+                  <thead>
+                    <tr><th style="width:70px">Método</th><th>Endpoint</th><th>Para qué sirve</th><th>Campos que necesita</th></tr>
+                  </thead>
+                  <tbody id="tabla-webhooks">
+                    <tr><td><span class="badge badge-primary">POST</span></td><td class="wh-url" data-path="/odoo/webhook/orden-confirmada">/odoo/webhook/orden-confirmada</td>
+                      <td>Se confirma una orden de venta — envía el mensaje de WhatsApp de orden confirmada.</td>
+                      <td><code>name</code>/<code>display_name</code>, <code>amount_total</code>, <code>partner_id</code></td></tr>
+                    <tr><td><span class="badge badge-primary">POST</span></td><td class="wh-url" data-path="/odoo/webhook/trabajo-listo">/odoo/webhook/trabajo-listo</td>
+                      <td>La tarea asociada a la orden pasa a estado "listo" — avisa al cliente que puede retirar.</td>
+                      <td><code>sale_order_id</code> (o la propia sale.order), <code>partner_id</code></td></tr>
+                    <tr><td><span class="badge badge-primary">POST</span></td><td class="wh-url" data-path="/odoo/webhook">/odoo/webhook</td>
+                      <td>Genérico — compatibilidad con configuraciones anteriores.</td>
+                      <td><code>name</code>/<code>display_name</code>, <code>partner_id</code>, <code>mensaje</code> (opcional)</td></tr>
+                    <tr><td><span class="badge badge-primary">POST</span></td><td class="wh-url" data-path="/odoo/enviar">/odoo/enviar</td>
+                      <td>Envío directo de un mensaje de WhatsApp con texto libre.</td>
+                      <td><code>telefono</code>, <code>mensaje</code>, <code>nro_orden</code> (opcional)</td></tr>
+                    <tr><td><span class="badge badge-success">GET</span></td><td class="wh-url" data-path="/whatsapp/plantillas">/whatsapp/plantillas</td>
+                      <td>Debug — lista las plantillas de WhatsApp aprobadas en Meta.</td>
+                      <td>—</td></tr>
+                    <tr><td><span class="badge badge-success">GET</span></td><td class="wh-url" data-path="/sync-clientes">/sync-clientes</td>
+                      <td>Fuerza la sincronización de clientes de Odoo (la misma que corre cada 24hs).</td>
+                      <td>—</td></tr>
+                    <tr><td><span class="badge badge-success">GET</span></td><td class="wh-url" data-path="/sync-tareas">/sync-tareas</td>
+                      <td>Fuerza la sincronización de tareas de Odoo (la misma que corre cada 30min).</td>
+                      <td>—</td></tr>
+                    <tr><td><span class="badge badge-success">GET</span></td><td class="wh-url" data-path="/actualizar-precios">/actualizar-precios</td>
+                      <td>Recarga la lista de precios.</td>
+                      <td>—</td></tr>
+                  </tbody>
+                </table>
               </div>
             </div>
           </div>

@@ -5,6 +5,8 @@ let _currentPausado = false;
 let _archivosData  = [];
 let _recientesOffset = 0;
 const _RECIENTES_LIMITE = 20;
+let _canalFiltro = '';
+let _currentCanal = '';
 
 // ── UTILS ─────────────────────────────────────────────────────────────────────
 function hoy() { return new Date().toISOString().split('T')[0]; }
@@ -24,8 +26,8 @@ function canalBadge(canal) {
   if (canal === 'instagram') return '<span class="badge ig">IG</span>';
   return '';
 }
-function esWhatsApp(canal, userId) {
-  return canal === 'whatsapp' || (!canal && /^\d{10,15}$/.test(userId));
+function puedeResponder(canal) {
+  return canal === 'whatsapp' || canal === 'instagram';
 }
 const _ARCHIVO_RE = /^\[Archivo recibido: (\w+)\] (\/archivos\/\d+\/descargar)$/;
 
@@ -41,12 +43,13 @@ function renderConversacion(historial) {
   return historial.map(m => `
     <div class="msg ${m.rol}">
       ${renderContenidoMensaje(m.contenido)}
-      <div class="msg-meta">${m.creado_en || ''}</div>
+      <div class="msg-meta">${m.creado_en || ''}${m.rol === 'assistant' ? ' <span class="check-sent">✓</span>' : ''}</div>
     </div>`).join('');
 }
 function renderClienteInfo(c, userId, pausado) {
   return `
     <div class="cliente-info">
+      <div class="ci-avatar"><i class="fas fa-user"></i></div>
       <div class="ci-item"><div class="ci-label">Nombre</div><div class="ci-val">${escHtml(c.nombre || '—')}</div></div>
       <div class="ci-item"><div class="ci-label">Teléfono</div><div class="ci-val">${escHtml(c.telefono || userId)}</div></div>
       <div class="ci-item"><div class="ci-label">Email</div><div class="ci-val">${escHtml(c.email || '—')}</div></div>
@@ -60,13 +63,18 @@ function mostrarConversacion(d) {
   _currentUserId = d.user_id;
   _currentPausado = !!d.pausado;
   const c = d.cliente;
+  _currentCanal = c.canal || '';
   document.getElementById('resultado-historial').innerHTML =
     renderClienteInfo(c, d.user_id, _currentPausado) +
     `<div class="conversacion" id="conv-box">${renderConversacion(d.historial)}</div>`;
   const box = document.getElementById('conv-box');
   if (box) box.scrollTop = box.scrollHeight;
-  document.getElementById('reply-box').style.display =
-    esWhatsApp(c.canal, d.user_id) ? 'flex' : 'none';
+  const puedeResp = puedeResponder(_currentCanal);
+  document.getElementById('reply-box').style.display = puedeResp ? 'flex' : 'none';
+  if (puedeResp) {
+    document.getElementById('reply-texto').placeholder =
+      _currentCanal === 'instagram' ? 'Escribir respuesta por Instagram...' : 'Escribir respuesta por WhatsApp...';
+  }
   document.getElementById('reply-texto').value = '';
 }
 async function togglePausa() {
@@ -87,7 +95,7 @@ async function togglePausa() {
 }
 
 // ── TABS ──────────────────────────────────────────────────────────────────────
-const _TAB_TITULOS = { analytics: 'Analytics', historial: 'Historial', archivos: 'Archivos', config: 'Configuración' };
+const _TAB_TITULOS = { analytics: 'Analytics', historial: 'Conversaciones', archivos: 'Archivos', config: 'Configuración', webhooks: 'Webhooks' };
 
 function switchTab(tab) {
   document.querySelectorAll('.tab-panel').forEach(p => p.classList.remove('active'));
@@ -99,6 +107,7 @@ function switchTab(tab) {
   if (tab === 'archivos') cargarArchivos();
   if (tab === 'historial') cargarHistorialReciente(true);
   if (tab === 'config') cargarConfiguracionTab();
+  if (tab === 'webhooks') pintarUrlsWebhooks();
 }
 
 // ── ANALYTICS ─────────────────────────────────────────────────────────────────
@@ -194,14 +203,19 @@ async function buscarHistorial() {
 }
 
 function renderResultadoCard(r) {
+  const preview = renderContenidoMensaje(r.ultimo_texto || '').replace(/<[^>]+>/g, '').trim();
+  const check = r.ultimo_rol === 'assistant' ? '<span class="check-sent">✓</span> ' : '';
   return `
     <div class="resultado-card" onclick='cargarConversacionDirecta(${JSON.stringify(r.ig_user_id)})'>
-      ${canalBadge(r.canal)}
-      <div>
-        <div class="rc-nombre">${escHtml(r.nombre || '—')}</div>
-        <div class="rc-tel">${escHtml(r.telefono || r.ig_user_id || '—')}</div>
+      <div class="rc-avatar"><i class="fas fa-user"></i></div>
+      <div class="rc-body">
+        <div class="rc-top">
+          <span class="rc-nombre">${escHtml(r.nombre || r.telefono || r.ig_user_id || '—')}</span>
+          ${canalBadge(r.canal)}
+          <span class="rc-fecha">${(r.ultimo_mensaje || '').substring(0, 16).replace('T', ' ')}</span>
+        </div>
+        <div class="rc-preview">${check}${escHtml(preview || 'Sin mensajes')}</div>
       </div>
-      <div class="rc-fecha">${(r.ultimo_mensaje || '').substring(0, 16).replace('T', ' ')}</div>
     </div>`;
 }
 
@@ -231,6 +245,12 @@ async function buscarContenido() {
   }
 }
 
+function setCanalFiltro(canal) {
+  _canalFiltro = canal;
+  document.querySelectorAll('.canal-filtro-btn').forEach(b => b.classList.toggle('active', b.dataset.canal === canal));
+  cargarHistorialReciente(true);
+}
+
 async function cargarHistorialReciente(reset) {
   if (reset) {
     _recientesOffset = 0;
@@ -243,7 +263,7 @@ async function cargarHistorialReciente(reset) {
   }
   const btnMas = document.getElementById('btn-cargar-mas');
   try {
-    const res = await fetch(`/historial-reciente?limite=${_RECIENTES_LIMITE}&offset=${_recientesOffset}`);
+    const res = await fetch(`/historial-reciente?limite=${_RECIENTES_LIMITE}&offset=${_recientesOffset}&canal=${_canalFiltro}`);
     if (!res.ok) throw new Error(`HTTP ${res.status}`);
     const data = await res.json();
     if (reset && !data.length) {
@@ -282,7 +302,7 @@ async function enviarRespuesta() {
     const res = await fetch('/responder', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ user_id: _currentUserId, mensaje: texto }),
+      body: JSON.stringify({ user_id: _currentUserId, mensaje: texto, canal: _currentCanal }),
     });
     if (!res.ok) {
       const err = await res.json();
@@ -466,6 +486,71 @@ async function guardarKnowledge() {
     estado.textContent = 'Guardado ✓';
   } catch (e) {
     estado.textContent = 'Error: ' + e.message;
+  }
+}
+
+// ── WEBHOOKS ───────────────────────────────────────────────────────────────────
+function pintarUrlsWebhooks() {
+  document.querySelectorAll('#tabla-webhooks .wh-url').forEach(td => {
+    td.textContent = location.origin + td.dataset.path;
+  });
+}
+
+function _mostrarResultadoWebhooks(texto) {
+  const pre = document.getElementById('webhooks-resultado');
+  pre.style.display = 'block';
+  pre.textContent = texto;
+}
+
+async function sincronizarClientes() {
+  _mostrarResultadoWebhooks('Sincronizando clientes...');
+  try {
+    const res = await fetch('/sync-clientes');
+    const d = await res.json();
+    _mostrarResultadoWebhooks(`Clientes sincronizados: ${d.clientes_sincronizados}`);
+  } catch (e) {
+    _mostrarResultadoWebhooks('Error: ' + e.message);
+  }
+}
+
+async function sincronizarTareas() {
+  _mostrarResultadoWebhooks('Sincronizando tareas...');
+  try {
+    const res = await fetch('/sync-tareas');
+    const d = await res.json();
+    _mostrarResultadoWebhooks(`Tareas sincronizadas: ${d.tareas_sincronizadas}`);
+  } catch (e) {
+    _mostrarResultadoWebhooks('Error: ' + e.message);
+  }
+}
+
+async function actualizarPreciosManual() {
+  _mostrarResultadoWebhooks('Actualizando precios...');
+  try {
+    const res = await fetch('/actualizar-precios');
+    const d = await res.json();
+    _mostrarResultadoWebhooks(JSON.stringify(d, null, 2));
+  } catch (e) {
+    _mostrarResultadoWebhooks('Error: ' + e.message);
+  }
+}
+
+async function verPlantillasWA() {
+  let key = localStorage.getItem('bridgebot_api_key');
+  if (!key) key = _pedirApiKey();
+  if (!key) return;
+  _mostrarResultadoWebhooks('Consultando plantillas...');
+  try {
+    const res = await fetch(`/whatsapp/plantillas?key=${encodeURIComponent(key)}`);
+    const d = await res.json();
+    if (res.status === 401) {
+      localStorage.removeItem('bridgebot_api_key');
+      _mostrarResultadoWebhooks('API key inválida — probá de nuevo.');
+      return;
+    }
+    _mostrarResultadoWebhooks(JSON.stringify(d, null, 2));
+  } catch (e) {
+    _mostrarResultadoWebhooks('Error: ' + e.message);
   }
 }
 
