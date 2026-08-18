@@ -507,6 +507,30 @@ async def upsert_clientes_odoo(clientes: list[dict]):
     log.info("Sync Odoo: %d clientes actualizados en DB local", len(clientes))
 
 
+async def listar_clientes_odoo(q: str = "", limite: int = 50, offset: int = 0) -> list[dict]:
+    """Lista paginada de clientes sincronizados de Odoo, con búsqueda opcional
+    por nombre o teléfono. Es de solo lectura — la sync nocturna es la fuente de verdad."""
+    if q:
+        return await _query(
+            """SELECT odoo_id, nombre, telefono, email, synced_at FROM clientes_odoo
+               WHERE nombre LIKE ? OR telefono LIKE ?
+               ORDER BY nombre COLLATE NOCASE ASC
+               LIMIT ? OFFSET ?""",
+            (f"%{q}%", f"%{q}%", limite, offset),
+        )
+    return await _query(
+        """SELECT odoo_id, nombre, telefono, email, synced_at FROM clientes_odoo
+           ORDER BY nombre COLLATE NOCASE ASC
+           LIMIT ? OFFSET ?""",
+        (limite, offset),
+    )
+
+
+async def contar_clientes_odoo() -> int:
+    rows = await _query("SELECT COUNT(*) as n FROM clientes_odoo")
+    return rows[0]["n"] if rows else 0
+
+
 async def buscar_cliente_odoo_por_id(odoo_id: int) -> dict | None:
     rows = await _query(
         "SELECT odoo_id, nombre, telefono, email FROM clientes_odoo WHERE odoo_id = ?",

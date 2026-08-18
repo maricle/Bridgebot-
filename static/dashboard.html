@@ -45,6 +45,11 @@
         <i class="fas fa-fw fa-link"></i><span>Webhooks</span>
       </a>
     </li>
+    <li class="nav-item" id="navitem-clientes">
+      <a class="nav-link" href="#" onclick="switchTab('clientes'); return false;">
+        <i class="fas fa-fw fa-address-book"></i><span>Clientes</span>
+      </a>
+    </li>
 
     <hr class="sidebar-divider d-none d-md-block">
     <div class="text-center d-none d-md-inline">
@@ -303,9 +308,41 @@
                     <tr><td><span class="badge badge-success">GET</span></td><td class="wh-url" data-path="/actualizar-precios">/actualizar-precios</td>
                       <td>Recarga la lista de precios.</td>
                       <td>—</td></tr>
+                    <tr><td><span class="badge badge-success">GET</span></td><td class="wh-url" data-path="/clientes-odoo">/clientes-odoo</td>
+                      <td>Lista de solo lectura de los clientes sincronizados desde Odoo (usado por el tab Clientes).</td>
+                      <td>—</td></tr>
                   </tbody>
                 </table>
               </div>
+            </div>
+          </div>
+        </div>
+
+        <!-- ── CLIENTES ── -->
+        <div class="tab-panel" id="panel-clientes">
+          <div class="card shadow mb-4">
+            <div class="card-header py-3 d-flex justify-content-between align-items-center">
+              <h6 class="m-0 font-weight-bold text-primary">Clientes sincronizados de Odoo</h6>
+              <span class="text-muted small" id="clientes-total"></span>
+            </div>
+            <div class="card-body">
+              <p class="text-muted small">
+                Solo lectura — se actualiza con la sync automática (cada 24hs) o desde el botón
+                "Sincronizar clientes ahora" en el tab Webhooks.
+              </p>
+              <input type="text" id="filtro-clientes" class="form-control mb-3" placeholder="Buscar por nombre o teléfono..." oninput="buscarClientesOdoo()">
+              <p class="text-muted small" id="estado-clientes"></p>
+              <div class="table-responsive">
+                <table class="table table-bordered table-sm" width="100%" cellspacing="0">
+                  <thead>
+                    <tr><th>Nombre</th><th>Teléfono</th><th>Email</th><th>Última sync</th></tr>
+                  </thead>
+                  <tbody id="tabla-clientes">
+                    <tr><td colspan="4" class="text-center text-muted">Cargando...</td></tr>
+                  </tbody>
+                </table>
+              </div>
+              <button class="btn btn-outline-primary btn-block" id="btn-cargar-mas-clientes" onclick="cargarClientesOdoo(false)" style="display:none">Cargar más</button>
             </div>
           </div>
         </div>
