@@ -722,14 +722,16 @@ async def webhook_orden_confirmada(request: Request):
     access_url = payload.get("access_url") or ""
 
     # El selector de campos del Webhook nativo de Odoo es limitado: si no
-    # vino el monto, el nombre o el link pero sí el id, lo completamos por RPC.
-    if (monto is None or not nro_orden or nro_orden == "—" or not access_url) and order_id:
+    # vino el monto, el nombre, el link o el cliente pero sí el id, lo completamos por RPC.
+    if (monto is None or not nro_orden or nro_orden == "—" or not access_url or not payload.get("partner_id")) and order_id:
         from odoo_crm import buscar_orden_por_id
         orden = await buscar_orden_por_id(order_id)
         if orden:
             nro_orden = nro_orden if nro_orden and nro_orden != "—" else orden.get("name") or "—"
             monto = monto if monto is not None else orden.get("amount_total")
             access_url = access_url or orden.get("access_url") or ""
+            if not payload.get("partner_id") and orden.get("partner_id"):
+                payload["partner_id"] = orden["partner_id"]
 
     from config import ALIAS_TRANSFERENCIA
     monto_fmt = _formatear_monto(monto)
@@ -765,13 +767,15 @@ async def webhook_trabajo_listo(request: Request):
 
     order_id = _resolver_order_id(payload)
 
-    # El selector de campos del Webhook nativo de Odoo es limitado: si el
-    # propio payload es una sale.order y no vino el número, lo buscamos por RPC.
-    if not nro_orden and payload.get("_model") == "sale.order" and payload.get("id"):
+    # El selector de campos del Webhook nativo de Odoo es limitado: completamos
+    # por RPC si falta el número de orden o el cliente, siempre que tengamos el id.
+    if (not nro_orden or not payload.get("partner_id")) and order_id:
         from odoo_crm import buscar_orden_por_id
-        orden = await buscar_orden_por_id(int(payload["id"]))
+        orden = await buscar_orden_por_id(order_id)
         if orden:
-            nro_orden = orden.get("name")
+            nro_orden = nro_orden or orden.get("name")
+            if not payload.get("partner_id") and orden.get("partner_id"):
+                payload["partner_id"] = orden["partner_id"]
 
     nro_orden = nro_orden or "—"
 
