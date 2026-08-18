@@ -19,8 +19,9 @@ from config import (BRIDGE_API_KEY, EXCLUIR_BOT, IG_ACCOUNT_ID, ODOO_URL,
                     VERIFY_TOKEN, WA_MSG_ORDEN_CONFIRMADA, WA_MSG_TRABAJO_LISTO)
 from db import (buscar_cliente_odoo_por_id, buscar_cliente_odoo_por_telefono,
                 buscar_en_historial, buscar_usuario_por_telefono,
-                conversacion_cerrada, es_usuario_nuevo, guardar_archivo,
-                guardar_datos_cliente, guardar_mensaje, init_db, listar_archivos,
+                conversacion_cerrada, contar_clientes_odoo, es_usuario_nuevo,
+                guardar_archivo, guardar_datos_cliente, guardar_mensaje, init_db,
+                listar_archivos, listar_clientes_odoo,
                 limpiar_historial, marcar_mensaje_procesado, marcar_saludado,
                 mensaje_ya_procesado, obtener_archivo_por_id, obtener_canonical_id,
                 obtener_conversacion, obtener_conversaciones_recientes,
@@ -365,6 +366,14 @@ async def sync_clientes_manual():
     if clientes:
         await upsert_clientes_odoo(clientes)
     return {"ok": True, "clientes_sincronizados": len(clientes)}
+
+
+@app.get("/clientes-odoo")
+async def ver_clientes_odoo(q: str = "", limite: int = 50, offset: int = 0):
+    """Lista de solo lectura de los clientes sincronizados desde Odoo."""
+    clientes = await listar_clientes_odoo(q=q, limite=limite, offset=offset)
+    total = await contar_clientes_odoo()
+    return {"total": total, "clientes": clientes}
 
 
 @app.get("/actualizar-precios")

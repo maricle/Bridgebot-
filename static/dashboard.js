@@ -95,7 +95,7 @@ async function togglePausa() {
 }
 
 // ── TABS ──────────────────────────────────────────────────────────────────────
-const _TAB_TITULOS = { analytics: 'Analytics', historial: 'Conversaciones', archivos: 'Archivos', config: 'Configuración', webhooks: 'Webhooks' };
+const _TAB_TITULOS = { analytics: 'Analytics', historial: 'Conversaciones', archivos: 'Archivos', config: 'Configuración', webhooks: 'Webhooks', clientes: 'Clientes' };
 
 function switchTab(tab) {
   document.querySelectorAll('.tab-panel').forEach(p => p.classList.remove('active'));
@@ -108,6 +108,7 @@ function switchTab(tab) {
   if (tab === 'historial') cargarHistorialReciente(true);
   if (tab === 'config') cargarConfiguracionTab();
   if (tab === 'webhooks') pintarUrlsWebhooks();
+  if (tab === 'clientes') cargarClientesOdoo(true);
 }
 
 // ── ANALYTICS ─────────────────────────────────────────────────────────────────
@@ -551,6 +552,51 @@ async function verPlantillasWA() {
     _mostrarResultadoWebhooks(JSON.stringify(d, null, 2));
   } catch (e) {
     _mostrarResultadoWebhooks('Error: ' + e.message);
+  }
+}
+
+// ── CLIENTES ODOO ─────────────────────────────────────────────────────
+let _clientesOffset = 0;
+const _CLIENTES_LIMITE = 50;
+let _clientesDebounce = null;
+
+function buscarClientesOdoo() {
+  clearTimeout(_clientesDebounce);
+  _clientesDebounce = setTimeout(() => cargarClientesOdoo(true), 300);
+}
+
+async function cargarClientesOdoo(reset) {
+  const estado = document.getElementById('estado-clientes');
+  const btnMas = document.getElementById('btn-cargar-mas-clientes');
+  if (reset) {
+    _clientesOffset = 0;
+    document.getElementById('tabla-clientes').innerHTML = '';
+  }
+  const q = document.getElementById('filtro-clientes').value.trim();
+  estado.textContent = 'Cargando...';
+  try {
+    const res = await fetch(`/clientes-odoo?q=${encodeURIComponent(q)}&limite=${_CLIENTES_LIMITE}&offset=${_clientesOffset}`);
+    const data = await res.json();
+    document.getElementById('clientes-total').textContent = `${data.total} cliente(s) sincronizado(s)`;
+    if (reset && !data.clientes.length) {
+      document.getElementById('tabla-clientes').innerHTML = '<tr><td colspan="4" class="text-center text-muted">Sin resultados.</td></tr>';
+      estado.textContent = '';
+      btnMas.style.display = 'none';
+      return;
+    }
+    const filas = data.clientes.map(c => `
+      <tr>
+        <td>${escHtml(c.nombre || '—')}</td>
+        <td>${escHtml(c.telefono || '—')}</td>
+        <td>${escHtml(c.email || '—')}</td>
+        <td>${(c.synced_at || '').substring(0, 16).replace('T', ' ')}</td>
+      </tr>`).join('');
+    document.getElementById('tabla-clientes').insertAdjacentHTML('beforeend', filas);
+    _clientesOffset += data.clientes.length;
+    estado.textContent = '';
+    btnMas.style.display = data.clientes.length === _CLIENTES_LIMITE ? 'block' : 'none';
+  } catch (e) {
+    estado.textContent = 'Error: ' + e.message;
   }
 }
 
