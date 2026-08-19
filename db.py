@@ -1,3 +1,4 @@
+import asyncio
 import logging
 import os
 import sqlite3
@@ -264,6 +265,8 @@ async def guardar_mensaje(user_id: str, rol: str, contenido: str):
         "INSERT INTO historial (ig_user_id, rol, contenido) VALUES (?, ?, ?)",
         (user_id, rol, contenido),
     )
+    from odoo_crm import registrar_mensaje_historial
+    asyncio.create_task(registrar_mensaje_historial(user_id, rol, contenido))
 
 
 async def guardar_lead(user_id: str, resumen: str, canal: str = "instagram",

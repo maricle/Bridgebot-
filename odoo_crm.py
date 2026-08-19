@@ -337,6 +337,29 @@ async def registrar_nota(model: str, record_id: int, mensaje: str) -> bool:
         return False
 
 
+async def registrar_mensaje_historial(user_id: str, rol: str, contenido: str) -> None:
+    """Refleja un mensaje (entrante o saliente) como nota en el chatter del contacto
+    en Odoo, si ese cliente ya está sincronizado (tabla clientes_odoo).
+
+    Se dispara en background desde db.guardar_mensaje() para cada mensaje que
+    BridgeBot recibe o manda — nunca debe bloquear ni propagar excepciones."""
+    try:
+        from db import buscar_cliente_odoo_por_telefono, obtener_datos_cliente
+        datos = await obtener_datos_cliente(user_id)
+        telefono = datos.get("telefono") or "".join(c for c in user_id if c.isdigit())
+        if not telefono:
+            return
+        cliente = await buscar_cliente_odoo_por_telefono(telefono)
+        if not cliente:
+            return
+        canal = datos.get("canal") or ("whatsapp" if telefono == "".join(c for c in user_id if c.isdigit()) else "")
+        canal_nombre = "WhatsApp" if canal == "whatsapp" else "Instagram" if canal == "instagram" else (canal or "Mensaje").capitalize()
+        flecha = f"{canal_nombre} ->" if rol == "user" else f"{canal_nombre} <-"
+        await registrar_nota("res.partner", cliente["odoo_id"], f"{flecha} {contenido}")
+    except Exception as e:
+        log.error("Error registrando mensaje en historial de Odoo (user=%s): %s", user_id, e)
+
+
 async def registrar_nota_orden(order_id: int, mensaje: str) -> bool:
     """Registra una nota interna (mail.mt_note) en el chatter de una sale.order."""
     if MODO_DEV:
