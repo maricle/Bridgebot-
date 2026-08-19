@@ -105,10 +105,10 @@ function switchTab(tab) {
   document.getElementById('page-heading').textContent = _TAB_TITULOS[tab] || '';
   document.getElementById('filtro-analytics').style.display = tab === 'analytics' ? 'flex' : 'none';
   if (tab === 'archivos') cargarArchivos();
-  if (tab === 'historial') cargarHistorialReciente(true);
+  if (tab === 'historial') { cargarHistorialReciente(true); cargarDuplicados(); }
   if (tab === 'config') cargarConfiguracionTab();
   if (tab === 'webhooks') pintarUrlsWebhooks();
-  if (tab === 'clientes') { cargarClientesOdoo(true); cargarDuplicados(); }
+  if (tab === 'clientes') cargarClientesOdoo(true);
 }
 
 // ── ANALYTICS ─────────────────────────────────────────────────────────────────
@@ -602,21 +602,23 @@ async function cargarClientesOdoo(reset) {
 
 // ── DUPLICADOS DE TELÉFONO ───────────────────────────────────────────────────
 async function cargarDuplicados() {
+  const alerta = document.getElementById('alerta-duplicados');
   const estado = document.getElementById('estado-duplicados');
   const lista = document.getElementById('lista-duplicados');
-  estado.textContent = 'Buscando duplicados...';
   lista.innerHTML = '';
+  lista.classList.add('d-none');
   try {
     const res = await fetch('/clientes/duplicados');
     const grupos = await res.json();
     if (!grupos.length) {
-      estado.textContent = 'No se encontraron duplicados.';
+      alerta.style.display = 'none';
       return;
     }
-    estado.textContent = `${grupos.length} grupo(s) de posibles duplicados.`;
+    alerta.style.display = 'block';
+    estado.textContent = `⚠ ${grupos.length} posible(s) chat(s) duplicado(s)`;
     lista.innerHTML = grupos.map(renderGrupoDuplicado).join('');
   } catch (e) {
-    estado.textContent = 'Error: ' + e.message;
+    alerta.style.display = 'none';
   }
 }
 
@@ -647,6 +649,10 @@ async function unificarGrupo(primario, duplicados) {
     }
     const grupoEl = document.getElementById(`dup-grupo-${primario}`);
     if (grupoEl) grupoEl.remove();
+    if (!document.getElementById('lista-duplicados').children.length) {
+      document.getElementById('alerta-duplicados').style.display = 'none';
+    }
+    cargarHistorialReciente(true);
   } catch (e) {
     estadoEl.textContent = 'Error: ' + e.message;
   }
