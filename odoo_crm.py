@@ -360,6 +360,36 @@ async def registrar_mensaje_historial(user_id: str, rol: str, contenido: str) ->
         log.error("Error registrando mensaje en historial de Odoo (user=%s): %s", user_id, e)
 
 
+async def notificar_comprobante_pago(user_id: str, datos: dict, link: str = "") -> None:
+    """Publica en el chatter del contacto en Odoo que se recibió un comprobante
+    de pago, con los datos que Claude extrajo del PDF. No hace nada si el
+    cliente no está sincronizado en Odoo (tabla clientes_odoo)."""
+    try:
+        from db import buscar_cliente_odoo_por_telefono, obtener_datos_cliente
+        datos_cliente = await obtener_datos_cliente(user_id)
+        telefono = datos_cliente.get("telefono") or "".join(c for c in user_id if c.isdigit())
+        if not telefono:
+            return
+        cliente = await buscar_cliente_odoo_por_telefono(telefono)
+        if not cliente:
+            return
+
+        lineas = ["💰 Comprobante de pago recibido por WhatsApp"]
+        etiquetas = [
+            ("monto", "Monto"), ("fecha", "Fecha"), ("destino", "Destino"),
+            ("operacion", "Operación"), ("banco", "Banco"),
+        ]
+        for clave, etiqueta in etiquetas:
+            if datos.get(clave):
+                lineas.append(f"{etiqueta}: {datos[clave]}")
+        if link:
+            lineas.append(f"Archivo: {link}")
+
+        await registrar_nota("res.partner", cliente["odoo_id"], "\n".join(lineas))
+    except Exception as e:
+        log.error("Error notificando comprobante de pago a Odoo (user=%s): %s", user_id, e)
+
+
 async def registrar_nota_orden(order_id: int, mensaje: str) -> bool:
     """Registra una nota interna (mail.mt_note) en el chatter de una sale.order."""
     if MODO_DEV:

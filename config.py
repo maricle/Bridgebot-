@@ -281,6 +281,9 @@ DB_PATH     = os.environ.get("DB_PATH", "/app/bridgebot.db")
 # Clave para endpoints que llaman servicios externos (ej: Odoo)
 BRIDGE_API_KEY = os.environ.get("BRIDGE_API_KEY", "")
 
+# URL pública de este BridgeBot (para armar links de descarga en notas a Odoo, etc.)
+PUBLIC_URL = os.environ.get("PUBLIC_URL", "").rstrip("/")
+
 # Alias de transferencia bancaria informado en el mensaje de orden confirmada
 ALIAS_TRANSFERENCIA = os.environ.get("ALIAS_TRANSFERENCIA", "")
 

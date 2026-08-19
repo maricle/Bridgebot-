@@ -210,6 +210,8 @@ async def init_db():
             "ALTER TABLE usuarios ADD COLUMN canonical_id TEXT    DEFAULT ''",
             "ALTER TABLE usuarios ADD COLUMN email        TEXT    DEFAULT ''",
             "ALTER TABLE usuarios ADD COLUMN pausado      INTEGER DEFAULT 0",
+            "ALTER TABLE archivos ADD COLUMN es_comprobante   INTEGER DEFAULT 0",
+            "ALTER TABLE archivos ADD COLUMN datos_comprobante TEXT   DEFAULT ''",
         ]:
             try:
                 await _turso(col_sql, silent=True)
@@ -226,6 +228,8 @@ async def init_db():
             "ALTER TABLE usuarios ADD COLUMN canonical_id TEXT    DEFAULT ''",
             "ALTER TABLE usuarios ADD COLUMN email        TEXT    DEFAULT ''",
             "ALTER TABLE usuarios ADD COLUMN pausado      INTEGER DEFAULT 0",
+            "ALTER TABLE archivos ADD COLUMN es_comprobante   INTEGER DEFAULT 0",
+            "ALTER TABLE archivos ADD COLUMN datos_comprobante TEXT   DEFAULT ''",
         ]:
             try:
                 with sqlite3.connect(DB_PATH) as con:
@@ -260,13 +264,14 @@ async def obtener_historial(user_id: str, limite: int = 10) -> list:
     return [{"role": r["rol"], "content": r["contenido"]} for r in reversed(rows)]
 
 
-async def guardar_mensaje(user_id: str, rol: str, contenido: str):
+async def guardar_mensaje(user_id: str, rol: str, contenido: str, notificar_odoo: bool = True):
     await _run(
         "INSERT INTO historial (ig_user_id, rol, contenido) VALUES (?, ?, ?)",
         (user_id, rol, contenido),
     )
-    from odoo_crm import registrar_mensaje_historial
-    asyncio.create_task(registrar_mensaje_historial(user_id, rol, contenido))
+    if notificar_odoo:
+        from odoo_crm import registrar_mensaje_historial
+        asyncio.create_task(registrar_mensaje_historial(user_id, rol, contenido))
 
 
 async def guardar_lead(user_id: str, resumen: str, canal: str = "instagram",
@@ -450,6 +455,14 @@ async def guardar_archivo(user_id: str, canal: str, tipo: str,
     )
 
 
+async def marcar_comprobante(archivo_id: int, datos_json: str):
+    """Marca un archivo como comprobante de pago detectado, con los datos extraídos (JSON)."""
+    await _run(
+        "UPDATE archivos SET es_comprobante = 1, datos_comprobante = ? WHERE id = ?",
+        (datos_json, archivo_id),
+    )
+
+
 async def obtener_archivos(user_id: str) -> list[dict]:
     return await _query(
         "SELECT tipo, media_id, url, creado_en FROM archivos WHERE ig_user_id = ? ORDER BY id ASC",
@@ -460,7 +473,7 @@ async def obtener_archivos(user_id: str) -> list[dict]:
 async def obtener_archivo_por_id(archivo_id: int) -> dict | None:
     rows = await _query(
         """SELECT a.id, a.ig_user_id, a.canal, a.tipo, a.media_id, a.url, a.creado_en,
-                  u.nombre, u.telefono
+                  a.es_comprobante, a.datos_comprobante, u.nombre, u.telefono
            FROM archivos a
            LEFT JOIN usuarios u ON u.ig_user_id = a.ig_user_id
            WHERE a.id = ?""",
@@ -472,7 +485,7 @@ async def obtener_archivo_por_id(archivo_id: int) -> dict | None:
 async def listar_archivos(limite: int = 200) -> list[dict]:
     return await _query(
         """SELECT a.id, a.ig_user_id, a.canal, a.tipo, a.media_id, a.url, a.creado_en,
-                  u.nombre, u.telefono
+                  a.es_comprobante, a.datos_comprobante, u.nombre, u.telefono
            FROM archivos a
            LEFT JOIN usuarios u ON u.ig_user_id = a.ig_user_id
            ORDER BY a.id DESC LIMIT ?""",

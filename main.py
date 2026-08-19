@@ -15,14 +15,14 @@ from fastapi.staticfiles import StaticFiles
 
 import instagram
 import whatsapp
-from config import (BRIDGE_API_KEY, EXCLUIR_BOT, IG_ACCOUNT_ID,
+from config import (BRIDGE_API_KEY, EXCLUIR_BOT, IG_ACCOUNT_ID, PUBLIC_URL,
                     VERIFY_TOKEN, WA_MSG_ORDEN_CONFIRMADA, WA_MSG_TRABAJO_LISTO,
                     WA_PLANTILLA_TRABAJO_LISTO_OFICINA, WA_PLANTILLA_TRABAJO_LISTO_TALLER)
 from db import (buscar_cliente_odoo_por_id, buscar_cliente_odoo_por_telefono,
                 buscar_en_historial, buscar_usuario_por_telefono,
                 conversacion_cerrada, contar_clientes_odoo, es_usuario_nuevo,
                 guardar_archivo, guardar_datos_cliente, guardar_mensaje, init_db,
-                listar_archivos, listar_clientes_odoo,
+                listar_archivos, listar_clientes_odoo, marcar_comprobante,
                 limpiar_historial, marcar_mensaje_procesado, marcar_saludado,
                 mensaje_ya_procesado, obtener_archivo_por_id, obtener_canonical_id,
                 obtener_conversacion, obtener_conversaciones_recientes,
@@ -40,6 +40,27 @@ _user_locks: dict[str, asyncio.Lock] = defaultdict(asyncio.Lock)
 
 # Imagen/sticker sueltos (sin pedido) → se guardan pero no se confirma por mensaje
 _TIPOS_MEDIA_SIN_RESPUESTA = {"image", "sticker"}
+
+
+async def _analizar_pdf_comprobante(media_id: str) -> dict | None:
+    """Si el PDF recibido por WhatsApp tiene pinta de comprobante de pago,
+    devuelve los datos extraídos por Claude. None si no aplica o algo falla —
+    nunca debe frenar el flujo normal de recepción del archivo."""
+    if not media_id:
+        return None
+    try:
+        async with httpx.AsyncClient() as client:
+            contenido = await whatsapp.descargar_media(client, media_id)
+        if not contenido:
+            return None
+        from comprobantes import analizar_comprobante, extraer_texto_pdf
+        texto = extraer_texto_pdf(contenido)
+        if not texto:
+            return None
+        return await analizar_comprobante(texto)
+    except Exception as e:
+        log.error("Error analizando PDF como comprobante: %s", e)
+        return None
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
@@ -246,12 +267,33 @@ async def procesar_whatsapp(data: dict):
         if sender_arch and archivos:
             async with _user_locks[sender_arch]:
                 canonical = await obtener_canonical_id(sender_arch)
+                hay_comprobante = False
                 for arch in archivos:
                     archivo_id = await guardar_archivo(canonical, "whatsapp", arch["tipo"], media_id=arch.get("media_id", ""))
-                    await guardar_mensaje(canonical, "user",
-                        f"[Archivo recibido: {arch['tipo']}] /archivos/{archivo_id}/descargar")
+                    link = f"{PUBLIC_URL}/archivos/{archivo_id}/descargar" if PUBLIC_URL else f"/archivos/{archivo_id}/descargar"
+
+                    datos_comprobante = None
+                    if arch.get("mime_type") == "application/pdf":
+                        datos_comprobante = await _analizar_pdf_comprobante(arch.get("media_id", ""))
+
+                    await guardar_mensaje(
+                        canonical, "user",
+                        f"[Archivo recibido: {arch['tipo']}] /archivos/{archivo_id}/descargar",
+                        notificar_odoo=not datos_comprobante,
+                    )
+
+                    if datos_comprobante:
+                        import json as _json
+                        from odoo_crm import notificar_comprobante_pago
+                        await marcar_comprobante(archivo_id, _json.dumps(datos_comprobante, ensure_ascii=False))
+                        asyncio.create_task(notificar_comprobante_pago(canonical, datos_comprobante, link))
+                        hay_comprobante = True
+
                 log.info("WA: %s archivo(s) guardado(s) para %s", len(archivos), sender_arch)
-                if any(arch["tipo"] not in _TIPOS_MEDIA_SIN_RESPUESTA for arch in archivos):
+                if hay_comprobante:
+                    async with httpx.AsyncClient() as client:
+                        await whatsapp.enviar_mensaje(client, sender_arch, "¡Recibimos tu comprobante de pago! 🙌 Ya quedó registrado.")
+                elif any(arch["tipo"] not in _TIPOS_MEDIA_SIN_RESPUESTA for arch in archivos):
                     async with httpx.AsyncClient() as client:
                         await whatsapp.enviar_mensaje(client, sender_arch, "¡Recibimos el archivo! Lo vamos a adjuntar al pedido.")
             return
