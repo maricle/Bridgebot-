@@ -20,7 +20,8 @@ from config import (BRIDGE_API_KEY, EXCLUIR_BOT, IG_ACCOUNT_ID,
                     WA_PLANTILLA_TRABAJO_LISTO_OFICINA, WA_PLANTILLA_TRABAJO_LISTO_TALLER)
 from db import (buscar_cliente_odoo_por_id, buscar_cliente_odoo_por_telefono,
                 buscar_en_historial, buscar_usuario_por_telefono,
-                conversacion_cerrada, contar_clientes_odoo, es_usuario_nuevo,
+                conversacion_cerrada, contar_clientes_odoo,
+                detectar_duplicados_telefono, es_usuario_nuevo,
                 guardar_archivo, guardar_datos_cliente, guardar_mensaje, init_db,
                 listar_archivos, listar_clientes_odoo, marcar_comprobante,
                 limpiar_historial, marcar_mensaje_procesado, marcar_saludado,
@@ -28,7 +29,7 @@ from db import (buscar_cliente_odoo_por_id, buscar_cliente_odoo_por_telefono,
                 obtener_conversacion, obtener_conversaciones_recientes,
                 obtener_datos_cliente, obtener_leads,
                 obtener_usuarios, pausar_usuario, reanudar_usuario, resetear_cerrada,
-                resetear_usuario, stats, usuario_pausado)
+                resetear_usuario, stats, unificar_clientes, usuario_pausado)
 from ai import generar_respuesta
 
 logging.basicConfig(level=logging.INFO, format="%(levelname)s: %(message)s")
@@ -420,6 +421,27 @@ async def ver_clientes_odoo(q: str = "", limite: int = 50, offset: int = 0):
     clientes = await listar_clientes_odoo(q=q, limite=limite, offset=offset)
     total = await contar_clientes_odoo()
     return {"total": total, "clientes": clientes}
+
+
+@app.get("/clientes/duplicados")
+async def ver_duplicados_telefono():
+    """Grupos de usuarios de WhatsApp con el mismo número (últimos 10 dígitos)
+    guardado bajo ig_user_id distintos — candidatos a unificar."""
+    return await detectar_duplicados_telefono()
+
+
+@app.post("/clientes/unificar")
+async def unificar_clientes_endpoint(request: Request):
+    """Une un cliente duplicado al principal: mueve su historial y archivos,
+    completa los datos que falten, y borra el duplicado."""
+    await _verificar_api_key(request)
+    body = await request.json()
+    primario = body.get("primario", "").strip()
+    duplicado = body.get("duplicado", "").strip()
+    if not primario or not duplicado:
+        raise HTTPException(status_code=400, detail="primario y duplicado son requeridos")
+    await unificar_clientes(primario, duplicado)
+    return {"ok": True}
 
 
 @app.get("/actualizar-precios")

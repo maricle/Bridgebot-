@@ -332,6 +332,59 @@ async def vincular_usuario(user_id: str, canonical_id: str):
     log.info("Usuario %s vinculado a canonical %s", user_id, canonical_id)
 
 
+async def detectar_duplicados_telefono() -> list[list[dict]]:
+    """Agrupa usuarios de WhatsApp cuyo número (últimos 10 dígitos) coincide
+    pero con ig_user_id distinto — señal de que es la misma persona guardada
+    con formato de teléfono distinto (con/sin código de país, etc.)."""
+    grupos = await _query(
+        """SELECT substr(ig_user_id, -10) as sufijo
+           FROM usuarios
+           WHERE canal = 'whatsapp' AND length(ig_user_id) >= 10
+           GROUP BY sufijo
+           HAVING COUNT(*) > 1"""
+    )
+    resultado = []
+    for g in grupos:
+        filas = await _query(
+            """SELECT u.ig_user_id, u.nombre, u.telefono,
+                      (SELECT COUNT(*) FROM historial h WHERE h.ig_user_id = u.ig_user_id) as mensajes,
+                      (SELECT MAX(creado_en) FROM historial h WHERE h.ig_user_id = u.ig_user_id) as ultimo_mensaje
+               FROM usuarios u
+               WHERE u.canal = 'whatsapp' AND substr(u.ig_user_id, -10) = ?
+               ORDER BY mensajes DESC""",
+            (g["sufijo"],),
+        )
+        resultado.append(filas)
+    return resultado
+
+
+async def unificar_clientes(primario: str, duplicado: str):
+    """Mueve todo el historial y archivos de `duplicado` a `primario`, completa
+    los datos que falten en `primario` con los de `duplicado`, y borra el
+    registro duplicado. Usar cuando dos ig_user_id son en realidad el mismo
+    número de teléfono guardado con formato distinto."""
+    if primario == duplicado:
+        return
+    await _run("UPDATE historial SET ig_user_id = ? WHERE ig_user_id = ?", (primario, duplicado))
+    await _run("UPDATE archivos  SET ig_user_id = ? WHERE ig_user_id = ?", (primario, duplicado))
+
+    filas_dup = await _query("SELECT nombre, telefono, email FROM usuarios WHERE ig_user_id = ?", (duplicado,))
+    filas_base = await _query("SELECT nombre, telefono, email FROM usuarios WHERE ig_user_id = ?", (primario,))
+    if filas_dup:
+        dup, base = filas_dup[0], (filas_base[0] if filas_base else {})
+        sets, vals = [], []
+        for campo in ("nombre", "telefono", "email"):
+            if not base.get(campo) and dup.get(campo):
+                sets.append(f"{campo} = ?")
+                vals.append(dup[campo])
+        if sets:
+            vals.append(primario)
+            await _run(f"UPDATE usuarios SET {', '.join(sets)} WHERE ig_user_id = ?", tuple(vals))
+
+    await _run("DELETE FROM usuarios WHERE ig_user_id = ?", (duplicado,))
+    log.info("Clientes unificados: %s -> %s", duplicado, primario)
+
+
 async def guardar_datos_cliente(user_id: str, nombre: str = "", telefono: str = "", email: str = ""):
     sets, vals = [], []
     if nombre:
