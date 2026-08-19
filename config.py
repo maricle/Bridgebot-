@@ -42,7 +42,7 @@ DASHBOARD_COLOR  = os.environ.get("DASHBOARD_COLOR", "#4f46e5")
 # ─── PANEL DE CONFIGURACIÓN (overrides guardados en DB) ───────────────────────
 # Variables editables desde /dashboard sin pasar por Railway. El valor de arriba
 # (env var) es el default; si hay un override guardado desde el panel, gana ese.
-KNOWLEDGE_ARCHIVOS = ["agente.md", "conocimiento.md", "01_reglas_comerciales.md", "areas.json", "precios.md"]
+KNOWLEDGE_ARCHIVOS = ["agente.md", "conocimiento.md", "areas.json", "precios.md"]
 
 
 async def recargar_configuracion():
@@ -77,10 +77,7 @@ async def recargar_conocimiento():
     _agente = agente_ov if agente_ov is not None else _leer_archivo("agente.md")
 
     conocimiento_ov = await obtener_config("knowledge:conocimiento.md")
-    conocimiento_base = conocimiento_ov if conocimiento_ov is not None else _leer_archivo("conocimiento.md")
-    reglas_ov = await obtener_config("knowledge:01_reglas_comerciales.md")
-    reglas = reglas_ov if reglas_ov is not None else _leer_archivo("01_reglas_comerciales.md")
-    _conocimiento = "\n\n---\n\n".join(p for p in [conocimiento_base, reglas] if p)
+    _conocimiento = conocimiento_ov if conocimiento_ov is not None else _leer_conocimiento_base()
 
     areas_ov = await obtener_config("knowledge:areas.json")
     if areas_ov is not None:
@@ -281,6 +278,9 @@ DB_PATH     = os.environ.get("DB_PATH", "/app/bridgebot.db")
 # ─── API EXTERNA ──────────────────────────────────────────────────────────────
 # Clave para endpoints que llaman servicios externos (ej: Odoo)
 BRIDGE_API_KEY = os.environ.get("BRIDGE_API_KEY", "")
+
+# URL pública de este BridgeBot (para armar links de descarga en notas a Odoo, etc.)
+PUBLIC_URL = os.environ.get("PUBLIC_URL", "").rstrip("/")
 
 # Alias de transferencia bancaria informado en el mensaje de orden confirmada
 ALIAS_TRANSFERENCIA = os.environ.get("ALIAS_TRANSFERENCIA", "")

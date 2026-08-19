@@ -125,6 +125,27 @@ async def enviar_plantilla(
     return False
 
 
+async def descargar_media(client: httpx.AsyncClient, media_id: str) -> bytes | None:
+    """Descarga el contenido binario de un media de WhatsApp a partir de su media_id."""
+    if not media_id or not WA_ACCESS_TOKEN:
+        return None
+    headers = {"Authorization": f"Bearer {WA_ACCESS_TOKEN}"}
+    try:
+        info = await client.get(f"https://graph.facebook.com/v19.0/{media_id}", headers=headers, timeout=10)
+        if info.status_code != 200:
+            return None
+        url = info.json().get("url", "")
+        if not url:
+            return None
+        resp = await client.get(url, headers=headers, timeout=30)
+        if resp.status_code != 200:
+            return None
+        return resp.content
+    except Exception as e:
+        log.error("Error descargando media %s: %s", media_id, e)
+        return None
+
+
 async def enviar_mensaje(client: httpx.AsyncClient, recipient_id: str, texto: str) -> bool:
     if MODO_DEV:
         log.info("MODO_DEV activo — mensaje WA NO enviado (simulado) a %s: %s", recipient_id, texto[:80])
