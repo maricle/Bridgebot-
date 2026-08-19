@@ -15,7 +15,7 @@ from fastapi.staticfiles import StaticFiles
 
 import instagram
 import whatsapp
-from config import (BRIDGE_API_KEY, EXCLUIR_BOT, IG_ACCOUNT_ID, PUBLIC_URL,
+from config import (BRIDGE_API_KEY, EXCLUIR_BOT, IG_ACCOUNT_ID,
                     VERIFY_TOKEN, WA_MSG_ORDEN_CONFIRMADA, WA_MSG_TRABAJO_LISTO,
                     WA_PLANTILLA_TRABAJO_LISTO_OFICINA, WA_PLANTILLA_TRABAJO_LISTO_TALLER)
 from db import (buscar_cliente_odoo_por_id, buscar_cliente_odoo_por_telefono,
@@ -270,24 +270,27 @@ async def procesar_whatsapp(data: dict):
                 hay_comprobante = False
                 for arch in archivos:
                     archivo_id = await guardar_archivo(canonical, "whatsapp", arch["tipo"], media_id=arch.get("media_id", ""))
-                    link = f"{PUBLIC_URL}/archivos/{archivo_id}/descargar" if PUBLIC_URL else f"/archivos/{archivo_id}/descargar"
 
                     datos_comprobante = None
                     if arch.get("mime_type") == "application/pdf":
                         datos_comprobante = await _analizar_pdf_comprobante(arch.get("media_id", ""))
+                    documento_sin_clasificar = arch["tipo"] == "document" and not datos_comprobante
 
                     await guardar_mensaje(
                         canonical, "user",
                         f"[Archivo recibido: {arch['tipo']}] /archivos/{archivo_id}/descargar",
-                        notificar_odoo=not datos_comprobante,
+                        notificar_odoo=not datos_comprobante and not documento_sin_clasificar,
                     )
 
                     if datos_comprobante:
                         import json as _json
                         from odoo_crm import notificar_comprobante_pago
                         await marcar_comprobante(archivo_id, _json.dumps(datos_comprobante, ensure_ascii=False))
-                        asyncio.create_task(notificar_comprobante_pago(canonical, datos_comprobante, link))
+                        asyncio.create_task(notificar_comprobante_pago(canonical, datos_comprobante))
                         hay_comprobante = True
+                    elif documento_sin_clasificar:
+                        from odoo_crm import notificar_documento_recibido
+                        asyncio.create_task(notificar_documento_recibido(canonical))
 
                 log.info("WA: %s archivo(s) guardado(s) para %s", len(archivos), sender_arch)
                 if hay_comprobante:

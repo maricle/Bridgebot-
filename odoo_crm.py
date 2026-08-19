@@ -360,7 +360,7 @@ async def registrar_mensaje_historial(user_id: str, rol: str, contenido: str) ->
         log.error("Error registrando mensaje en historial de Odoo (user=%s): %s", user_id, e)
 
 
-async def notificar_comprobante_pago(user_id: str, datos: dict, link: str = "") -> None:
+async def notificar_comprobante_pago(user_id: str, datos: dict) -> None:
     """Publica en el chatter del contacto en Odoo que se recibió un comprobante
     de pago, con los datos que Claude extrajo del PDF. No hace nada si el
     cliente no está sincronizado en Odoo (tabla clientes_odoo)."""
@@ -382,12 +382,29 @@ async def notificar_comprobante_pago(user_id: str, datos: dict, link: str = "") 
         for clave, etiqueta in etiquetas:
             if datos.get(clave):
                 lineas.append(f"{etiqueta}: {datos[clave]}")
-        if link:
-            lineas.append(f"Archivo: {link}")
 
         await registrar_nota("res.partner", cliente["odoo_id"], "\n".join(lineas))
     except Exception as e:
         log.error("Error notificando comprobante de pago a Odoo (user=%s): %s", user_id, e)
+
+
+async def notificar_documento_recibido(user_id: str) -> None:
+    """Publica en el chatter del contacto en Odoo que se recibió un documento
+    por WhatsApp que no se pudo identificar como comprobante de pago (no es
+    PDF con texto, o Claude determinó que no lo es). No hace nada si el
+    cliente no está sincronizado en Odoo (tabla clientes_odoo)."""
+    try:
+        from db import buscar_cliente_odoo_por_telefono, obtener_datos_cliente
+        datos_cliente = await obtener_datos_cliente(user_id)
+        telefono = datos_cliente.get("telefono") or "".join(c for c in user_id if c.isdigit())
+        if not telefono:
+            return
+        cliente = await buscar_cliente_odoo_por_telefono(telefono)
+        if not cliente:
+            return
+        await registrar_nota("res.partner", cliente["odoo_id"], "📄 WhatsApp -> Se recibió un documento")
+    except Exception as e:
+        log.error("Error notificando documento recibido a Odoo (user=%s): %s", user_id, e)
 
 
 async def registrar_nota_orden(order_id: int, mensaje: str) -> bool:
