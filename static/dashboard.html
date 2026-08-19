@@ -314,6 +314,19 @@
         <!-- ── CLIENTES ── -->
         <div class="tab-panel" id="panel-clientes">
           <div class="card shadow mb-4">
+            <div class="card-header py-3"><h6 class="m-0 font-weight-bold text-primary">Posibles duplicados (mismo teléfono)</h6></div>
+            <div class="card-body">
+              <p class="text-muted small">
+                Chats de WhatsApp guardados con el mismo número en distinto formato
+                (con/sin código de país). Unificar mueve todos los mensajes y archivos
+                al que tiene más actividad, y borra el duplicado.
+              </p>
+              <p class="text-muted small" id="estado-duplicados">Buscando duplicados...</p>
+              <div id="lista-duplicados"></div>
+            </div>
+          </div>
+
+          <div class="card shadow mb-4">
             <div class="card-header py-3 d-flex justify-content-between align-items-center">
               <h6 class="m-0 font-weight-bold text-primary">Clientes sincronizados de Odoo</h6>
               <span class="text-muted small" id="clientes-total"></span>

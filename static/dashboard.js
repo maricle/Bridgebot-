@@ -108,7 +108,7 @@ function switchTab(tab) {
   if (tab === 'historial') cargarHistorialReciente(true);
   if (tab === 'config') cargarConfiguracionTab();
   if (tab === 'webhooks') pintarUrlsWebhooks();
-  if (tab === 'clientes') cargarClientesOdoo(true);
+  if (tab === 'clientes') { cargarClientesOdoo(true); cargarDuplicados(); }
 }
 
 // ── ANALYTICS ─────────────────────────────────────────────────────────────────
@@ -597,6 +597,58 @@ async function cargarClientesOdoo(reset) {
     btnMas.style.display = data.clientes.length === _CLIENTES_LIMITE ? 'block' : 'none';
   } catch (e) {
     estado.textContent = 'Error: ' + e.message;
+  }
+}
+
+// ── DUPLICADOS DE TELÉFONO ───────────────────────────────────────────────────
+async function cargarDuplicados() {
+  const estado = document.getElementById('estado-duplicados');
+  const lista = document.getElementById('lista-duplicados');
+  estado.textContent = 'Buscando duplicados...';
+  lista.innerHTML = '';
+  try {
+    const res = await fetch('/clientes/duplicados');
+    const grupos = await res.json();
+    if (!grupos.length) {
+      estado.textContent = 'No se encontraron duplicados.';
+      return;
+    }
+    estado.textContent = `${grupos.length} grupo(s) de posibles duplicados.`;
+    lista.innerHTML = grupos.map(renderGrupoDuplicado).join('');
+  } catch (e) {
+    estado.textContent = 'Error: ' + e.message;
+  }
+}
+
+function renderGrupoDuplicado(grupo) {
+  const [primario, ...duplicados] = grupo;
+  const fila = (r, esPrimario) => `
+    <div class="dup-item ${esPrimario ? 'dup-primario' : ''}">
+      <span class="dup-tel">${escHtml(r.ig_user_id)}</span>
+      <span class="dup-nombre">${escHtml(r.nombre || '—')}</span>
+      <span class="dup-meta">${r.mensajes} mensaje(s) · último: ${(r.ultimo_mensaje || '—').substring(0, 16).replace('T', ' ')}</span>
+      ${esPrimario ? '<span class="badge badge-primary">Se mantiene</span>' : ''}
+    </div>`;
+  return `
+    <div class="dup-grupo" id="dup-grupo-${primario.ig_user_id}">
+      ${fila(primario, true)}
+      ${duplicados.map(d => fila(d, false)).join('')}
+      <button class="btn btn-primary btn-sm mt-2" onclick='unificarGrupo(${JSON.stringify(primario.ig_user_id)}, ${JSON.stringify(duplicados.map(d => d.ig_user_id))})'>Unificar</button>
+      <span class="text-muted small ml-2" id="estado-dup-${primario.ig_user_id}"></span>
+    </div>`;
+}
+
+async function unificarGrupo(primario, duplicados) {
+  const estadoEl = document.getElementById(`estado-dup-${primario}`);
+  estadoEl.textContent = 'Unificando...';
+  try {
+    for (const dup of duplicados) {
+      await _postConfig('/clientes/unificar', { primario, duplicado: dup });
+    }
+    const grupoEl = document.getElementById(`dup-grupo-${primario}`);
+    if (grupoEl) grupoEl.remove();
+  } catch (e) {
+    estadoEl.textContent = 'Error: ' + e.message;
   }
 }
 
