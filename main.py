@@ -30,8 +30,9 @@ from db import (buscar_cliente_odoo_por_id, buscar_cliente_odoo_por_telefono,
                 obtener_conversacion, obtener_conversaciones_recientes,
                 obtener_datos_cliente, obtener_leads,
                 obtener_usuarios, pausar_usuario, reanudar_usuario, resetear_cerrada,
-                resetear_usuario, stats, unificar_clientes, usuario_pausado)
+                resetear_usuario, unificar_clientes, usuario_pausado)
 from ai import generar_respuesta
+from routers import debug as debug_router
 
 logging.basicConfig(level=logging.INFO, format="%(levelname)s: %(message)s")
 log = logging.getLogger(__name__)
@@ -122,6 +123,7 @@ async def _sync_tareas_loop():
 
 app = FastAPI(title="BridgeBot", version="5.0.0", lifespan=lifespan)
 app.mount("/static", StaticFiles(directory="static"), name="static")
+app.include_router(debug_router.router)
 
 
 # ─── INSTAGRAM ────────────────────────────────────────────────────────────────
@@ -354,46 +356,6 @@ async def procesar_whatsapp(data: dict):
 
 # ─── UTILS ────────────────────────────────────────────────────────────────────
 
-@app.get("/test-claude")
-async def test_claude():
-    from config import ANTHROPIC_API_KEY
-    from ai import _llamar_claude
-    if not ANTHROPIC_API_KEY:
-        return {"ok": False, "error": "ANTHROPIC_API_KEY no configurada"}
-    respuesta = await _llamar_claude(
-        messages=[{"role": "user", "content": "Respondé solo: hola"}],
-        max_tokens=50,
-    )
-    if respuesta:
-        return {"ok": True, "respuesta": respuesta}
-    return {"ok": False, "error": "Claude no respondió — revisá los logs"}
-
-
-@app.get("/test-odoo")
-async def test_odoo():
-    from config import ODOO_API_KEY, ODOO_URL, ODOO_LOGIN
-
-    if not ODOO_URL or not ODOO_API_KEY or not ODOO_LOGIN:
-        return {
-            "ok": False,
-            "error": "Variables faltantes",
-            "ODOO_URL": ODOO_URL or "VACÍO",
-            "ODOO_API_KEY": f"{ODOO_API_KEY[:6]}..." if ODOO_API_KEY else "VACÍO",
-            "ODOO_LOGIN": ODOO_LOGIN or "VACÍO",
-        }
-
-    from odoo_crm import crear_lead
-    lead_id = await crear_lead(
-        nombre_cliente="Test BridgeBot",
-        telefono="0000000000",
-        descripcion="Lead de prueba — podés eliminarlo.",
-        canal="test",
-        user_id="test",
-    )
-    if lead_id:
-        return {"ok": True, "odoo_lead_id": lead_id}
-    return {"ok": False, "mensaje": "Revisá los logs de Railway para ver el error exacto"}
-
 
 @app.get("/sync-tareas")
 async def sync_tareas_manual():
@@ -454,34 +416,6 @@ async def actualizar_precios():
         "ok": True,
         "chars": len(contenido),
         "preview": contenido[:200] + "..." if len(contenido) > 200 else contenido,
-    }
-
-
-@app.get("/health")
-async def health():
-    from config import AUTO_RESPUESTA, WA_ACCESS_TOKEN, WA_PHONE_ID
-    wa_ok = False
-    wa_numero = None
-    if WA_ACCESS_TOKEN and WA_PHONE_ID:
-        try:
-            async with httpx.AsyncClient() as client:
-                resp = await client.get(
-                    f"https://graph.facebook.com/v19.0/{WA_PHONE_ID}",
-                    params={"access_token": WA_ACCESS_TOKEN},
-                    timeout=8,
-                )
-                if resp.status_code == 200:
-                    data = resp.json()
-                    wa_ok = True
-                    wa_numero = data.get("display_phone_number")
-        except Exception:
-            pass
-    return {
-        "status": "ok",
-        "version": "5.0.0",
-        "modo": "AUTO_RESPUESTA" if AUTO_RESPUESTA else "CLAUDE",
-        "whatsapp": {"ok": wa_ok, "numero": wa_numero},
-        **(await stats()),
     }
 
 
