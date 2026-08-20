@@ -348,6 +348,18 @@ async def _resolver_cliente_odoo(user_id: str) -> tuple[dict, str, dict | None]:
     return datos, telefono, cliente
 
 
+async def _registrar_nota_cliente_y_orden(user_id: str, odoo_id: int, mensaje: str) -> None:
+    """Publica la nota en el chatter del contacto y, si el cliente tiene una
+    orden activa (última orden notificada por un webhook de Odoo), también en
+    el chatter de esa orden — así lo que pasa después de "orden confirmada" o
+    "trabajo listo" (ej. el cliente manda el comprobante) queda visible ahí."""
+    await registrar_nota("res.partner", odoo_id, mensaje)
+    from db import obtener_ultima_orden
+    order_id = await obtener_ultima_orden(user_id)
+    if order_id:
+        await registrar_nota_orden(order_id, mensaje)
+
+
 async def registrar_mensaje_historial(user_id: str, rol: str, contenido: str) -> None:
     """Refleja un mensaje (entrante o saliente) como nota en el chatter del contacto
     en Odoo, si ese cliente ya está sincronizado (tabla clientes_odoo).
@@ -361,7 +373,7 @@ async def registrar_mensaje_historial(user_id: str, rol: str, contenido: str) ->
         canal = datos.get("canal") or ("whatsapp" if telefono == "".join(c for c in user_id if c.isdigit()) else "")
         canal_nombre = "WhatsApp" if canal == "whatsapp" else "Instagram" if canal == "instagram" else (canal or "Mensaje").capitalize()
         flecha = f"{canal_nombre} ->" if rol == "user" else f"{canal_nombre} <-"
-        await registrar_nota("res.partner", cliente["odoo_id"], f"{flecha} {contenido}")
+        await _registrar_nota_cliente_y_orden(user_id, cliente["odoo_id"], f"{flecha} {contenido}")
     except Exception as e:
         log.error("Error registrando mensaje en historial de Odoo (user=%s): %s", user_id, e)
 
@@ -384,7 +396,7 @@ async def notificar_comprobante_pago(user_id: str, datos: dict) -> None:
             if datos.get(clave):
                 lineas.append(f"{etiqueta}: {datos[clave]}")
 
-        await registrar_nota("res.partner", cliente["odoo_id"], "\n".join(lineas))
+        await _registrar_nota_cliente_y_orden(user_id, cliente["odoo_id"], "\n".join(lineas))
     except Exception as e:
         log.error("Error notificando comprobante de pago a Odoo (user=%s): %s", user_id, e)
 
@@ -398,7 +410,7 @@ async def notificar_documento_recibido(user_id: str) -> None:
         _, _, cliente = await _resolver_cliente_odoo(user_id)
         if not cliente:
             return
-        await registrar_nota("res.partner", cliente["odoo_id"], "📄 WhatsApp -> Se recibió un documento")
+        await _registrar_nota_cliente_y_orden(user_id, cliente["odoo_id"], "📄 WhatsApp -> Se recibió un documento")
     except Exception as e:
         log.error("Error notificando documento recibido a Odoo (user=%s): %s", user_id, e)
 

@@ -14,6 +14,11 @@ Cubre los patrones de falla observados en el historial de chats:
    - Historial vacío → string vacío
 """
 
+import uuid
+from unittest.mock import AsyncMock, patch
+
+import db
+import odoo_crm
 from odoo_crm import _extraer_links, _transcripcion_html
 
 
@@ -146,3 +151,57 @@ def test_transcripcion_newlines_a_br():
     historial = [{"role": "user", "content": "línea 1\nlínea 2"}]
     html = _transcripcion_html(historial)
     assert "<br/>" in html
+
+
+# ─── notas: contacto + orden activa ────────────────────────────────────────────
+# Después de "orden confirmada" / "trabajo listo", los mensajes posteriores del
+# cliente (ej. el comprobante de pago) deben aparecer también en el chatter de
+# esa orden en Odoo, no solo en el del contacto (pedido explícito del usuario).
+
+def _telefono() -> str:
+    return "549379" + str(uuid.uuid4().int)[:10]
+
+
+async def _seed_cliente_sincronizado(telefono: str, odoo_id: int) -> str:
+    """Da de alta un cliente de WhatsApp con su contraparte ya sincronizada en
+    clientes_odoo — condición para que las funciones de notas hagan algo."""
+    await db.marcar_saludado(telefono, canal="whatsapp")
+    await db.guardar_datos_cliente(telefono, telefono=telefono)
+    await db.upsert_clientes_odoo([{"odoo_id": odoo_id, "nombre": "Cliente Test", "telefono": telefono}])
+    return telefono
+
+
+async def test_registrar_mensaje_historial_solo_contacto_sin_orden_activa():
+    tel = await _seed_cliente_sincronizado(_telefono(), odoo_id=901)
+    with patch("odoo_crm.registrar_nota", new=AsyncMock(return_value=True)) as mock_nota, \
+         patch("odoo_crm.registrar_nota_orden", new=AsyncMock(return_value=True)) as mock_nota_orden:
+        await odoo_crm.registrar_mensaje_historial(tel, "user", "hola")
+
+    assert mock_nota.called is True
+    assert mock_nota.call_args.args[0] == "res.partner"
+    assert mock_nota_orden.called is False
+
+
+async def test_registrar_mensaje_historial_tambien_va_a_la_orden_activa():
+    tel = await _seed_cliente_sincronizado(_telefono(), odoo_id=902)
+    await db.actualizar_ultima_orden(tel, 4321)
+    with patch("odoo_crm.registrar_nota", new=AsyncMock(return_value=True)) as mock_nota, \
+         patch("odoo_crm.registrar_nota_orden", new=AsyncMock(return_value=True)) as mock_nota_orden:
+        await odoo_crm.registrar_mensaje_historial(tel, "user", "les mando el comprobante")
+
+    assert mock_nota.called is True
+    assert mock_nota_orden.called is True
+    assert mock_nota_orden.call_args.args[0] == 4321
+    assert mock_nota_orden.call_args.args[1] == mock_nota.call_args.args[2]
+
+
+async def test_notificar_comprobante_pago_tambien_va_a_la_orden_activa():
+    tel = await _seed_cliente_sincronizado(_telefono(), odoo_id=903)
+    await db.actualizar_ultima_orden(tel, 5678)
+    with patch("odoo_crm.registrar_nota", new=AsyncMock(return_value=True)) as mock_nota, \
+         patch("odoo_crm.registrar_nota_orden", new=AsyncMock(return_value=True)) as mock_nota_orden:
+        await odoo_crm.notificar_comprobante_pago(tel, {"monto": "1000", "banco": "Galicia"})
+
+    assert mock_nota.called is True
+    assert mock_nota_orden.called is True
+    assert mock_nota_orden.call_args.args[0] == 5678

@@ -212,6 +212,7 @@ async def init_db():
             "ALTER TABLE usuarios ADD COLUMN pausado      INTEGER DEFAULT 0",
             "ALTER TABLE archivos ADD COLUMN es_comprobante   INTEGER DEFAULT 0",
             "ALTER TABLE archivos ADD COLUMN datos_comprobante TEXT   DEFAULT ''",
+            "ALTER TABLE usuarios ADD COLUMN ultima_orden_id INTEGER DEFAULT 0",
         ]:
             try:
                 await _turso(col_sql, silent=True)
@@ -230,6 +231,7 @@ async def init_db():
             "ALTER TABLE usuarios ADD COLUMN pausado      INTEGER DEFAULT 0",
             "ALTER TABLE archivos ADD COLUMN es_comprobante   INTEGER DEFAULT 0",
             "ALTER TABLE archivos ADD COLUMN datos_comprobante TEXT   DEFAULT ''",
+            "ALTER TABLE usuarios ADD COLUMN ultima_orden_id INTEGER DEFAULT 0",
         ]:
             try:
                 with sqlite3.connect(DB_PATH) as con:
@@ -314,6 +316,33 @@ async def obtener_canonical_id(user_id: str) -> str:
     if rows and rows[0].get("canonical_id"):
         return rows[0]["canonical_id"]
     return user_id
+
+
+async def actualizar_ultima_orden(user_id: str, order_id: int):
+    """Guarda el order_id de la última orden notificada a este cliente, para que
+    los mensajes posteriores (ej. comprobantes de pago) se registren también en
+    el chatter de esa orden en Odoo, no solo en el del contacto.
+
+    Usa upsert (no UPDATE) porque este es a veces el primer contacto con un
+    cliente nuevo — Odoo puede notificar "orden confirmada" antes de que el
+    cliente le haya escrito nunca a BridgeBot, así que su fila en `usuarios`
+    todavía no existe."""
+    await _run(
+        """INSERT INTO usuarios (ig_user_id, ultima_orden_id) VALUES (?, ?)
+           ON CONFLICT(ig_user_id) DO UPDATE SET ultima_orden_id = ?""",
+        (user_id, order_id, order_id),
+    )
+
+
+async def obtener_ultima_orden(user_id: str) -> int:
+    """Devuelve el order_id de la última orden notificada a este cliente, o 0 si
+    no hay ninguna (o el mensaje llegó antes de cualquier notificación de orden)."""
+    rows = await _query(
+        "SELECT ultima_orden_id FROM usuarios WHERE ig_user_id = ?", (user_id,)
+    )
+    if rows and rows[0].get("ultima_orden_id"):
+        return rows[0]["ultima_orden_id"]
+    return 0
 
 
 async def buscar_usuario_por_telefono(telefono: str) -> str | None:

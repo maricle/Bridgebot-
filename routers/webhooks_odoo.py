@@ -11,7 +11,8 @@ import whatsapp
 from auth import verificar_api_key
 from config import (BRIDGE_API_KEY, WA_MSG_ORDEN_CONFIRMADA, WA_MSG_TRABAJO_LISTO,
                     WA_PLANTILLA_TRABAJO_LISTO_OFICINA, WA_PLANTILLA_TRABAJO_LISTO_TALLER)
-from db import buscar_cliente_odoo_por_id, guardar_mensaje, obtener_canonical_id
+from db import (actualizar_ultima_orden, buscar_cliente_odoo_por_id,
+                guardar_mensaje, obtener_canonical_id)
 
 log = logging.getLogger(__name__)
 router = APIRouter()
@@ -134,6 +135,10 @@ async def _notificar_orden(
         log.info("Odoo → WA enviado a %s", telefono)
         if order_id:
             await odoo_crm.registrar_nota_orden(order_id, nota_exito)
+            # Deja constancia de la orden activa del cliente para que sus mensajes
+            # posteriores (ej. comprobante de pago) también se registren en el
+            # chatter de esta orden, no solo en el del contacto.
+            await actualizar_ultima_orden(canonical, order_id)
     else:
         log.error("No se pudo enviar WhatsApp a %s", telefono)
         if order_id:

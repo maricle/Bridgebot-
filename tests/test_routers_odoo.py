@@ -53,6 +53,26 @@ async def test_orden_confirmada_envia_plantilla_presupuesto_2():
     assert monto == "3.600"
 
 
+async def test_orden_confirmada_guarda_ultima_orden_del_cliente():
+    """Al notificar con éxito, se guarda el order_id como 'orden activa' del
+    cliente — así sus mensajes posteriores (ej. el comprobante) se registran
+    también en el chatter de esa orden, no solo en el del contacto."""
+    payload = {
+        "id": 555999,
+        "name": "2026-55555",
+        "amount_total": 1200,
+        "access_url": "/my/orders/555999",
+        "partner_id": {"id": 9, "display_name": "Carla Ruiz", "phone": "5493794000009"},
+    }
+    with patch("whatsapp.enviar_plantilla", new=AsyncMock(return_value=True)), \
+         patch("odoo_crm.registrar_nota_orden", new=AsyncMock(return_value=True)):
+        resultado = await webhooks_odoo.webhook_orden_confirmada(FakeRequest(payload))
+
+    assert resultado["ok"] is True
+    orden_activa = await db.obtener_ultima_orden("5493794000009")
+    assert orden_activa == 555999
+
+
 async def test_orden_confirmada_resuelve_partner_id_faltante_por_rpc():
     """Si el payload no trae partner_id, se busca la orden completa por RPC y de
     ahí se saca el cliente — cubre el bug real donde el cliente existía en Odoo
