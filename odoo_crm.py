@@ -337,6 +337,17 @@ async def registrar_nota(model: str, record_id: int, mensaje: str) -> bool:
         return False
 
 
+async def _resolver_cliente_odoo(user_id: str) -> tuple[dict, str, dict | None]:
+    """Resuelve los datos locales (nombre/teléfono/canal) de un user_id de
+    BridgeBot y su contraparte sincronizada en Odoo (tabla clientes_odoo).
+    El cliente es None si no hay teléfono o todavía no está sincronizado."""
+    from db import buscar_cliente_odoo_por_telefono, obtener_datos_cliente
+    datos = await obtener_datos_cliente(user_id)
+    telefono = datos.get("telefono") or "".join(c for c in user_id if c.isdigit())
+    cliente = await buscar_cliente_odoo_por_telefono(telefono) if telefono else None
+    return datos, telefono, cliente
+
+
 async def registrar_mensaje_historial(user_id: str, rol: str, contenido: str) -> None:
     """Refleja un mensaje (entrante o saliente) como nota en el chatter del contacto
     en Odoo, si ese cliente ya está sincronizado (tabla clientes_odoo).
@@ -344,12 +355,7 @@ async def registrar_mensaje_historial(user_id: str, rol: str, contenido: str) ->
     Se dispara en background desde db.guardar_mensaje() para cada mensaje que
     BridgeBot recibe o manda — nunca debe bloquear ni propagar excepciones."""
     try:
-        from db import buscar_cliente_odoo_por_telefono, obtener_datos_cliente
-        datos = await obtener_datos_cliente(user_id)
-        telefono = datos.get("telefono") or "".join(c for c in user_id if c.isdigit())
-        if not telefono:
-            return
-        cliente = await buscar_cliente_odoo_por_telefono(telefono)
+        datos, telefono, cliente = await _resolver_cliente_odoo(user_id)
         if not cliente:
             return
         canal = datos.get("canal") or ("whatsapp" if telefono == "".join(c for c in user_id if c.isdigit()) else "")
@@ -365,12 +371,7 @@ async def notificar_comprobante_pago(user_id: str, datos: dict) -> None:
     de pago, con los datos que Claude extrajo del PDF. No hace nada si el
     cliente no está sincronizado en Odoo (tabla clientes_odoo)."""
     try:
-        from db import buscar_cliente_odoo_por_telefono, obtener_datos_cliente
-        datos_cliente = await obtener_datos_cliente(user_id)
-        telefono = datos_cliente.get("telefono") or "".join(c for c in user_id if c.isdigit())
-        if not telefono:
-            return
-        cliente = await buscar_cliente_odoo_por_telefono(telefono)
+        _, _, cliente = await _resolver_cliente_odoo(user_id)
         if not cliente:
             return
 
@@ -394,12 +395,7 @@ async def notificar_documento_recibido(user_id: str) -> None:
     PDF con texto, o Claude determinó que no lo es). No hace nada si el
     cliente no está sincronizado en Odoo (tabla clientes_odoo)."""
     try:
-        from db import buscar_cliente_odoo_por_telefono, obtener_datos_cliente
-        datos_cliente = await obtener_datos_cliente(user_id)
-        telefono = datos_cliente.get("telefono") or "".join(c for c in user_id if c.isdigit())
-        if not telefono:
-            return
-        cliente = await buscar_cliente_odoo_por_telefono(telefono)
+        _, _, cliente = await _resolver_cliente_odoo(user_id)
         if not cliente:
             return
         await registrar_nota("res.partner", cliente["odoo_id"], "📄 WhatsApp -> Se recibió un documento")
