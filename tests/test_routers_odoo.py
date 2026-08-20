@@ -10,8 +10,7 @@ scripts de smoke test sueltos (ahora persistido como test real).
 from unittest.mock import AsyncMock, patch
 
 import db
-import main
-from routers import webhooks_odoo
+from routers import dashboard_api, webhooks_odoo
 
 
 class FakeRequest:
@@ -167,7 +166,7 @@ async def test_responder_usa_whatsapp_por_defecto():
     body = {"user_id": "5493794000006", "mensaje": "hola"}
     with patch("whatsapp.enviar_mensaje", new=AsyncMock(return_value=True)) as mock_wa, \
          patch("instagram.enviar_mensaje", new=AsyncMock(return_value=True)) as mock_ig:
-        resultado = await main.responder_whatsapp(FakeRequest(body))
+        resultado = await dashboard_api.responder_whatsapp(FakeRequest(body))
 
     assert resultado == {"ok": True}
     assert mock_wa.called is True
@@ -179,7 +178,7 @@ async def test_responder_usa_instagram_si_el_cliente_es_de_ese_canal():
     body = {"user_id": "ig_test_user_1", "mensaje": "hola"}
     with patch("whatsapp.enviar_mensaje", new=AsyncMock(return_value=True)) as mock_wa, \
          patch("instagram.enviar_mensaje", new=AsyncMock(return_value=True)) as mock_ig:
-        resultado = await main.responder_whatsapp(FakeRequest(body))
+        resultado = await dashboard_api.responder_whatsapp(FakeRequest(body))
 
     assert resultado == {"ok": True}
     assert mock_ig.called is True
@@ -190,7 +189,7 @@ async def test_responder_respeta_canal_explicito_del_body():
     body = {"user_id": "5493794000007", "mensaje": "hola", "canal": "instagram"}
     with patch("whatsapp.enviar_mensaje", new=AsyncMock(return_value=True)) as mock_wa, \
          patch("instagram.enviar_mensaje", new=AsyncMock(return_value=True)) as mock_ig:
-        resultado = await main.responder_whatsapp(FakeRequest(body))
+        resultado = await dashboard_api.responder_whatsapp(FakeRequest(body))
 
     assert resultado == {"ok": True}
     assert mock_ig.called is True
