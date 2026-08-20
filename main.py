@@ -15,6 +15,7 @@ from fastapi.staticfiles import StaticFiles
 
 import instagram
 import whatsapp
+from auth import verificar_api_key
 from config import (BRIDGE_API_KEY, EXCLUIR_BOT, IG_ACCOUNT_ID,
                     VERIFY_TOKEN, WA_MSG_ORDEN_CONFIRMADA, WA_MSG_TRABAJO_LISTO,
                     WA_PLANTILLA_TRABAJO_LISTO_OFICINA, WA_PLANTILLA_TRABAJO_LISTO_TALLER)
@@ -434,7 +435,7 @@ async def ver_duplicados_telefono():
 async def unificar_clientes_endpoint(request: Request):
     """Une un cliente duplicado al principal: mueve su historial y archivos,
     completa los datos que falten, y borra el duplicado."""
-    await _verificar_api_key(request)
+    await verificar_api_key(request)
     body = await request.json()
     primario = body.get("primario", "").strip()
     duplicado = body.get("duplicado", "").strip()
@@ -526,7 +527,7 @@ async def obtener_configuracion():
 
 @app.post("/config")
 async def guardar_configuracion(request: Request):
-    await _verificar_api_key(request)
+    await verificar_api_key(request)
     body = await request.json()
     from db import guardar_config
     for clave in _CONFIG_CLAVES:
@@ -548,7 +549,7 @@ async def guardar_knowledge(archivo: str, request: Request):
     import config as _config
     if archivo not in _config.KNOWLEDGE_ARCHIVOS:
         raise HTTPException(status_code=400, detail="Archivo no permitido")
-    await _verificar_api_key(request)
+    await verificar_api_key(request)
     body = await request.json()
     contenido = body.get("contenido", "")
 
@@ -614,17 +615,6 @@ async def buscar_por_telefono(telefono: str):
     historial = await obtener_conversacion(user_id)
     pausado = await usuario_pausado(user_id)
     return {"encontrado": True, "user_id": user_id, "cliente": datos, "historial": historial, "pausado": pausado}
-
-
-async def _verificar_api_key(request: Request):
-    # Header X-Api-Key (integraciones normales) o ?key=... en la URL
-    # (la acción "Webhook" nativa de Odoo no permite configurar headers custom).
-    # Si BRIDGE_API_KEY no está configurada, se omite la validación (modo dev).
-    if not BRIDGE_API_KEY:
-        return
-    api_key = request.headers.get("X-Api-Key", "") or request.query_params.get("key", "")
-    if api_key != BRIDGE_API_KEY:
-        raise HTTPException(status_code=401, detail="API key inválida")
 
 
 def _formatear_monto(valor) -> str:
@@ -762,7 +752,7 @@ async def _notificar_orden(
 @app.post("/odoo/webhook")
 async def webhook_odoo(request: Request):
     """Endpoint genérico — mantiene compatibilidad con la configuración anterior."""
-    await _verificar_api_key(request)
+    await verificar_api_key(request)
     payload = await request.json()
     log.info("Odoo webhook (genérico) payload: %s", payload)
     nro_orden = payload.get("name") or payload.get("display_name") or "—"
@@ -782,7 +772,7 @@ async def webhook_odoo(request: Request):
 @app.get("/whatsapp/plantillas")
 async def whatsapp_plantillas(request: Request):
     """Debug: lista las plantillas de WhatsApp aprobadas en Meta para esta cuenta."""
-    await _verificar_api_key(request)
+    await verificar_api_key(request)
     async with httpx.AsyncClient() as client:
         return await whatsapp.obtener_plantillas(client)
 
@@ -790,7 +780,7 @@ async def whatsapp_plantillas(request: Request):
 @app.post("/odoo/webhook/orden-confirmada")
 async def webhook_orden_confirmada(request: Request):
     """Dispara cuando se confirma una orden de venta (sale.order state=sale)."""
-    await _verificar_api_key(request)
+    await verificar_api_key(request)
     payload = await request.json()
     log.info("Odoo webhook orden-confirmada payload: %s", payload)
 
@@ -832,7 +822,7 @@ async def webhook_orden_confirmada(request: Request):
 @app.post("/odoo/webhook/trabajo-listo")
 async def webhook_trabajo_listo(request: Request):
     """Dispara cuando la tarea asociada a la orden pasa a estado 'listo'."""
-    await _verificar_api_key(request)
+    await verificar_api_key(request)
     payload = await request.json()
     log.info("Odoo webhook trabajo-listo payload: %s", payload)
 
@@ -874,7 +864,7 @@ async def _procesar_trabajo_listo_sucursal(
 ) -> dict:
     """Común a los webhooks de trabajo-listo por sucursal (Taller/Oficina) —
     cada sucursal tiene su propia plantilla de Meta, dirección y alias de cobro."""
-    await _verificar_api_key(request)
+    await verificar_api_key(request)
     payload = await request.json()
     log.info("Odoo webhook trabajo-listo (%s) payload: %s", nombre_plantilla, payload)
 
