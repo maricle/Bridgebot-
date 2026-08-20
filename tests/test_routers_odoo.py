@@ -11,6 +11,7 @@ from unittest.mock import AsyncMock, patch
 
 import db
 import main
+from routers import webhooks_odoo
 
 
 class FakeRequest:
@@ -38,7 +39,7 @@ async def test_orden_confirmada_envia_plantilla_presupuesto_2():
     with patch("whatsapp.enviar_plantilla", new=AsyncMock(return_value=True)) as mock_plantilla, \
          patch("whatsapp.enviar_mensaje", new=AsyncMock(return_value=True)) as mock_texto, \
          patch("odoo_crm.registrar_nota_orden", new=AsyncMock(return_value=True)):
-        resultado = await main.webhook_orden_confirmada(FakeRequest(payload))
+        resultado = await webhooks_odoo.webhook_orden_confirmada(FakeRequest(payload))
 
     assert resultado["ok"] is True
     assert mock_texto.called is False
@@ -66,7 +67,7 @@ async def test_orden_confirmada_resuelve_partner_id_faltante_por_rpc():
          patch("odoo_crm.obtener_telefono_partner", new=AsyncMock(return_value="5493794999999")), \
          patch("whatsapp.enviar_plantilla", new=AsyncMock(return_value=True)) as mock_plantilla, \
          patch("odoo_crm.registrar_nota_orden", new=AsyncMock(return_value=True)):
-        resultado = await main.webhook_orden_confirmada(FakeRequest(payload))
+        resultado = await webhooks_odoo.webhook_orden_confirmada(FakeRequest(payload))
 
     assert resultado["ok"] is True
     assert resultado["telefono"] == "5493794999999"
@@ -81,7 +82,7 @@ async def test_orden_confirmada_sin_telefono_no_envia_y_avisa_en_odoo():
     with patch("odoo_crm.buscar_orden_por_id", new=AsyncMock(return_value=None)), \
          patch("whatsapp.enviar_plantilla", new=AsyncMock(return_value=True)) as mock_plantilla, \
          patch("odoo_crm.registrar_nota_orden", new=AsyncMock(return_value=True)) as mock_nota:
-        resultado = await main.webhook_orden_confirmada(FakeRequest(payload))
+        resultado = await webhooks_odoo.webhook_orden_confirmada(FakeRequest(payload))
 
     assert resultado["ok"] is False
     assert mock_plantilla.called is False
@@ -99,7 +100,7 @@ async def test_trabajo_listo_generico_envia_texto_libre():
     with patch("whatsapp.enviar_mensaje", new=AsyncMock(return_value=True)) as mock_texto, \
          patch("whatsapp.enviar_plantilla", new=AsyncMock(return_value=True)) as mock_plantilla, \
          patch("odoo_crm.registrar_nota_orden", new=AsyncMock(return_value=True)):
-        resultado = await main.webhook_trabajo_listo(FakeRequest(payload))
+        resultado = await webhooks_odoo.webhook_trabajo_listo(FakeRequest(payload))
 
     assert resultado["ok"] is True
     assert mock_plantilla.called is False
@@ -117,7 +118,7 @@ async def test_trabajo_listo_taller_usa_su_propia_plantilla_y_direccion():
     }
     with patch("whatsapp.enviar_plantilla", new=AsyncMock(return_value=True)) as mock_plantilla, \
          patch("odoo_crm.registrar_nota_orden", new=AsyncMock(return_value=True)):
-        resultado = await main.webhook_trabajo_listo_taller(FakeRequest(payload))
+        resultado = await webhooks_odoo.webhook_trabajo_listo_taller(FakeRequest(payload))
 
     assert resultado["ok"] is True
     args = mock_plantilla.call_args.args
@@ -136,7 +137,7 @@ async def test_trabajo_listo_oficina_usa_su_propia_plantilla():
     }
     with patch("whatsapp.enviar_plantilla", new=AsyncMock(return_value=True)) as mock_plantilla, \
          patch("odoo_crm.registrar_nota_orden", new=AsyncMock(return_value=True)):
-        resultado = await main.webhook_trabajo_listo_oficina(FakeRequest(payload))
+        resultado = await webhooks_odoo.webhook_trabajo_listo_oficina(FakeRequest(payload))
 
     assert resultado["ok"] is True
     args = mock_plantilla.call_args.args
@@ -153,7 +154,7 @@ async def test_trabajo_listo_taller_resuelve_partner_id_faltante_por_rpc():
          patch("odoo_crm.obtener_telefono_partner", new=AsyncMock(return_value="5493794000005")), \
          patch("whatsapp.enviar_plantilla", new=AsyncMock(return_value=True)) as mock_plantilla, \
          patch("odoo_crm.registrar_nota_orden", new=AsyncMock(return_value=True)):
-        resultado = await main.webhook_trabajo_listo_taller(FakeRequest(payload))
+        resultado = await webhooks_odoo.webhook_trabajo_listo_taller(FakeRequest(payload))
 
     assert resultado["ok"] is True
     assert resultado["telefono"] == "5493794000005"
