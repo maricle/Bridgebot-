@@ -8,7 +8,7 @@ import uuid
 from unittest.mock import AsyncMock, patch
 
 import db
-import main
+from routers import webhooks_meta
 
 
 def _telefono() -> str:
@@ -56,9 +56,9 @@ async def _esperar_tareas_pendientes():
 async def test_wa_mensaje_normal_llama_a_claude_y_responde():
     tel = _telefono()
     payload = _payload_texto_wa(tel, "Hola, precio de MDF?")
-    with patch("main.generar_respuesta", new=AsyncMock(return_value="Hola! el MDF...")) as mock_claude, \
+    with patch("routers.webhooks_meta.generar_respuesta", new=AsyncMock(return_value="Hola! el MDF...")) as mock_claude, \
          patch("whatsapp.enviar_mensaje", new=AsyncMock(return_value=True)) as mock_envio:
-        await main.procesar_whatsapp(payload)
+        await webhooks_meta.procesar_whatsapp(payload)
 
     assert mock_claude.called is True
     assert mock_envio.called is True
@@ -73,9 +73,9 @@ async def test_wa_usuario_pausado_no_llama_a_claude():
     await db.marcar_saludado(tel, canal="whatsapp")
     await db.pausar_usuario(tel)
     payload = _payload_texto_wa(tel, "hola")
-    with patch("main.generar_respuesta", new=AsyncMock(return_value="no debería llamarse")) as mock_claude, \
+    with patch("routers.webhooks_meta.generar_respuesta", new=AsyncMock(return_value="no debería llamarse")) as mock_claude, \
          patch("whatsapp.enviar_mensaje", new=AsyncMock(return_value=True)):
-        await main.procesar_whatsapp(payload)
+        await webhooks_meta.procesar_whatsapp(payload)
 
     assert mock_claude.called is False
     historial = await db.obtener_conversacion(tel)
@@ -85,10 +85,10 @@ async def test_wa_usuario_pausado_no_llama_a_claude():
 async def test_wa_mensaje_duplicado_se_ignora():
     mid = _wamid()
     payload = _payload_texto_wa(_telefono(), "hola de nuevo", mid)
-    with patch("main.generar_respuesta", new=AsyncMock(return_value="respuesta")) as mock_claude, \
+    with patch("routers.webhooks_meta.generar_respuesta", new=AsyncMock(return_value="respuesta")) as mock_claude, \
          patch("whatsapp.enviar_mensaje", new=AsyncMock(return_value=True)):
-        await main.procesar_whatsapp(payload)
-        await main.procesar_whatsapp(payload)  # mismo message_id
+        await webhooks_meta.procesar_whatsapp(payload)
+        await webhooks_meta.procesar_whatsapp(payload)  # mismo message_id
 
     assert mock_claude.call_count == 1
 
@@ -96,9 +96,9 @@ async def test_wa_mensaje_duplicado_se_ignora():
 async def test_wa_auto_respuesta_manda_saludo_sin_llamar_a_claude():
     payload = _payload_texto_wa(_telefono(), "hola")
     with patch("config.AUTO_RESPUESTA", True), \
-         patch("main.generar_respuesta", new=AsyncMock(return_value="no debería llamarse")) as mock_claude, \
+         patch("routers.webhooks_meta.generar_respuesta", new=AsyncMock(return_value="no debería llamarse")) as mock_claude, \
          patch("whatsapp.enviar_mensaje", new=AsyncMock(return_value=True)) as mock_envio:
-        await main.procesar_whatsapp(payload)
+        await webhooks_meta.procesar_whatsapp(payload)
 
     assert mock_claude.called is False
     assert mock_envio.called is True
@@ -108,10 +108,10 @@ async def test_wa_cliente_nuevo_se_completa_con_datos_de_odoo():
     tel = _telefono()
     payload = _payload_texto_wa(tel, "hola")
     odoo_match = {"odoo_id": 1, "nombre": "Cliente Odoo", "email": "x@x.com"}
-    with patch("main.buscar_cliente_odoo_por_telefono", new=AsyncMock(return_value=odoo_match)), \
-         patch("main.generar_respuesta", new=AsyncMock(return_value="hola!")), \
+    with patch("routers.webhooks_meta.buscar_cliente_odoo_por_telefono", new=AsyncMock(return_value=odoo_match)), \
+         patch("routers.webhooks_meta.generar_respuesta", new=AsyncMock(return_value="hola!")), \
          patch("whatsapp.enviar_mensaje", new=AsyncMock(return_value=True)):
-        await main.procesar_whatsapp(payload)
+        await webhooks_meta.procesar_whatsapp(payload)
 
     datos = await db.obtener_datos_cliente(tel)
     assert datos["nombre"] == "Cliente Odoo"
@@ -123,7 +123,7 @@ async def test_wa_archivo_generico_se_guarda_y_confirma():
     payload = _payload_documento_wa(_telefono(), "media123", "application/msword")
     with patch("odoo_crm.registrar_nota", new=AsyncMock(return_value=True)), \
          patch("whatsapp.enviar_mensaje", new=AsyncMock(return_value=True)) as mock_envio:
-        await main.procesar_whatsapp(payload)
+        await webhooks_meta.procesar_whatsapp(payload)
         await _esperar_tareas_pendientes()
 
     assert mock_envio.called is True
