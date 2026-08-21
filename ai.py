@@ -240,7 +240,8 @@ async def generar_respuesta(user_id: str, mensaje: str, canal: str = "instagram"
     system        = get_system_prompt(con_precios=con_precios, canal=canal, areas_detectadas=areas)
 
     if consulta_orden:
-        from db import buscar_tareas_por_nombre, buscar_tareas_por_nro_orden, buscar_tareas_por_telefono
+        from db import (buscar_tareas_por_nombre, buscar_tareas_por_nro_orden,
+                        buscar_tareas_por_telefono, obtener_ultima_orden_nro)
         tareas = []
 
         # 1. Prioridad: número de orden mencionado en el mensaje
@@ -264,6 +265,16 @@ async def generar_respuesta(user_id: str, mensaje: str, canal: str = "instagram"
             if tareas:
                 log.info("Tareas encontradas por nombre '%s' para user=%s", datos_cliente["nombre"], user_id)
 
+        # 4. Fallback: última orden que Odoo le notificó a este cliente (webhook
+        # de "orden confirmada"/"trabajo listo") — cubre el caso típico de "¿cómo
+        # va mi pedido?" sin dar número, cuando el teléfono/nombre no matchean
+        # exactamente con lo sincronizado desde project.task.
+        ultima_orden_nro = await obtener_ultima_orden_nro(canonical_id)
+        if not tareas and ultima_orden_nro:
+            tareas = await buscar_tareas_por_nro_orden(ultima_orden_nro)
+            if tareas:
+                log.info("Tareas encontradas por última orden notificada (%s) para user=%s", ultima_orden_nro, user_id)
+
         if tareas:
             lineas = []
             for t in tareas:
@@ -281,6 +292,13 @@ async def generar_respuesta(user_id: str, mensaje: str, canal: str = "instagram"
                 "Si está en otra etapa, decile que está en producción y que te va a avisar cuando esté listo."
             )
             log.info("Estado de tareas inyectado para user=%s (%d tarea/s)", user_id, len(tareas))
+        elif ultima_orden_nro:
+            system += (
+                "\n\n## Trabajos del cliente en producción\n"
+                f"Su última orden confirmada es la *{ultima_orden_nro}*, pero todavía no hay una etapa "
+                "de producción cargada para ella. Decile que su pedido está en preparación y que le "
+                f"vamos a avisar apenas esté listo, mencionando el número de orden ({ultima_orden_nro})."
+            )
         else:
             system += (
                 "\n\n## Trabajos del cliente en producción\n"

@@ -100,7 +100,7 @@ async def _enviar_notificacion_wa(telefono: str, mensaje: str, nro_orden: str,
 
 async def _notificar_orden(
     telefono: str, mensaje: str, order_id: int | None, nota_exito: str,
-    plantilla: tuple[str, str, list[str]] | None = None,
+    plantilla: tuple[str, str, list[str]] | None = None, nro_orden: str = "",
 ) -> bool:
     """Envía el WA y deja constancia en el chatter de la orden (éxito o motivo del fallo).
 
@@ -138,7 +138,7 @@ async def _notificar_orden(
             # Deja constancia de la orden activa del cliente para que sus mensajes
             # posteriores (ej. comprobante de pago) también se registren en el
             # chatter de esta orden, no solo en el del contacto.
-            await actualizar_ultima_orden(canonical, order_id)
+            await actualizar_ultima_orden(canonical, order_id, nro_orden)
     else:
         log.error("No se pudo enviar WhatsApp a %s", telefono)
         if order_id:
@@ -215,6 +215,7 @@ async def webhook_orden_confirmada(request: Request):
         telefono, mensaje, order_id,
         nota_exito=f"✅ WhatsApp enviado al cliente (plantilla presupuesto_2):\n{mensaje}",
         plantilla=("presupuesto_2", "es_AR", [nombre_corto, nro_orden, empresa, moneda_simbolo, monto_numero]),
+        nro_orden=nro_orden if nro_orden != "—" else "",
     )
     return {"ok": enviado, "telefono": telefono, "orden": nro_orden}
 
@@ -254,6 +255,7 @@ async def webhook_trabajo_listo(request: Request):
     enviado = await _notificar_orden(
         telefono, mensaje, order_id,
         nota_exito="✅ Cliente notificado: trabajo listo",
+        nro_orden=nro_orden if nro_orden != "—" else "",
     )
     return {"ok": enviado, "telefono": telefono, "orden": nro_orden}
 
@@ -304,6 +306,7 @@ async def _procesar_trabajo_listo_sucursal(
         telefono, mensaje, order_id,
         nota_exito=f"✅ WhatsApp enviado al cliente (plantilla {nombre_plantilla}):\n{mensaje}",
         plantilla=(nombre_plantilla, idioma, [nombre_corto, nro_orden, monto_numero, moneda_simbolo]),
+        nro_orden=nro_orden if nro_orden != "—" else "",
     )
     return {"ok": enviado, "telefono": telefono, "orden": nro_orden}
 
