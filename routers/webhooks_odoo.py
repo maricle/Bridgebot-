@@ -9,10 +9,11 @@ from fastapi import APIRouter, HTTPException, Request
 import odoo_crm
 import whatsapp
 from auth import verificar_api_key
-from config import (BRIDGE_API_KEY, WA_MSG_ORDEN_CONFIRMADA, WA_MSG_TRABAJO_LISTO,
+from config import (WA_MSG_ORDEN_CONFIRMADA, WA_MSG_TRABAJO_LISTO,
                     WA_PLANTILLA_TRABAJO_LISTO_OFICINA, WA_PLANTILLA_TRABAJO_LISTO_TALLER)
 from db import (actualizar_ultima_orden, buscar_cliente_odoo_por_id,
                 guardar_mensaje, obtener_canonical_id)
+from utils import solo_digitos
 
 log = logging.getLogger(__name__)
 router = APIRouter()
@@ -51,12 +52,12 @@ async def _extraer_cliente(payload: dict) -> tuple[str, str]:
         or (partner_raw.get("mobile")  if isinstance(partner_raw, dict) else None)
         or ""
     )
-    telefono = "".join(c for c in telefono if c.isdigit())
+    telefono = solo_digitos(telefono)
 
     if not telefono and partner_id:
         cliente = await buscar_cliente_odoo_por_id(int(partner_id))
         if cliente:
-            telefono = "".join(c for c in (cliente.get("telefono") or "") if c.isdigit())
+            telefono = solo_digitos(cliente.get("telefono") or "")
             nombre   = nombre or cliente.get("nombre") or ""
 
     # Último recurso: la sync local puede estar desactualizada o no tener el
@@ -82,6 +83,30 @@ def _resolver_order_id(payload: dict) -> int | None:
     if isinstance(sale_order, (list, tuple)) and sale_order:
         return int(sale_order[0])
     return None
+
+
+async def _completar_desde_odoo(
+    payload: dict, order_id: int | None, nro_orden: str, monto=None, access_url: str = "",
+    necesita_monto: bool = False, necesita_access_url: bool = False,
+) -> tuple[str, object, str]:
+    """Completa nro_orden/monto/access_url (y el partner_id del payload, in-place)
+    buscando la orden por RPC si falta algo — el selector de campos del Webhook
+    nativo de Odoo es limitado y no siempre trae todo lo necesario."""
+    falta = (not nro_orden or nro_orden == "—" or not payload.get("partner_id")
+             or (necesita_monto and monto is None)
+             or (necesita_access_url and not access_url))
+    if falta and order_id:
+        orden = await odoo_crm.buscar_orden_por_id(order_id)
+        if orden:
+            if not nro_orden or nro_orden == "—":
+                nro_orden = orden.get("name") or "—"
+            if necesita_monto and monto is None:
+                monto = orden.get("amount_total")
+            if necesita_access_url and not access_url:
+                access_url = orden.get("access_url") or ""
+            if not payload.get("partner_id") and orden.get("partner_id"):
+                payload["partner_id"] = orden["partner_id"]
+    return nro_orden, monto, access_url
 
 
 async def _enviar_notificacion_wa(telefono: str, mensaje: str, nro_orden: str,
@@ -190,16 +215,10 @@ async def webhook_orden_confirmada(request: Request):
     monto = payload.get("amount_total")
     access_url = payload.get("access_url") or ""
 
-    # El selector de campos del Webhook nativo de Odoo es limitado: si no
-    # vino el monto, el nombre, el link o el cliente pero sí el id, lo completamos por RPC.
-    if (monto is None or not nro_orden or nro_orden == "—" or not access_url or not payload.get("partner_id")) and order_id:
-        orden = await odoo_crm.buscar_orden_por_id(order_id)
-        if orden:
-            nro_orden = nro_orden if nro_orden and nro_orden != "—" else orden.get("name") or "—"
-            monto = monto if monto is not None else orden.get("amount_total")
-            access_url = access_url or orden.get("access_url") or ""
-            if not payload.get("partner_id") and orden.get("partner_id"):
-                payload["partner_id"] = orden["partner_id"]
+    nro_orden, monto, access_url = await _completar_desde_odoo(
+        payload, order_id, nro_orden, monto, access_url,
+        necesita_monto=True, necesita_access_url=True,
+    )
 
     from config import NOMBRE_NEGOCIO
     monto_fmt = _formatear_monto(monto)
@@ -236,17 +255,7 @@ async def webhook_trabajo_listo(request: Request):
     )
 
     order_id = _resolver_order_id(payload)
-
-    # El selector de campos del Webhook nativo de Odoo es limitado: completamos
-    # por RPC si falta el número de orden o el cliente, siempre que tengamos el id.
-    if (not nro_orden or not payload.get("partner_id")) and order_id:
-        orden = await odoo_crm.buscar_orden_por_id(order_id)
-        if orden:
-            nro_orden = nro_orden or orden.get("name")
-            if not payload.get("partner_id") and orden.get("partner_id"):
-                payload["partner_id"] = orden["partner_id"]
-
-    nro_orden = nro_orden or "—"
+    nro_orden, _, _ = await _completar_desde_odoo(payload, order_id, nro_orden or "—")
 
     telefono, nombre = await _extraer_cliente(payload)
     nombre_corto = nombre.split()[0] if nombre else "te"
@@ -278,15 +287,9 @@ async def _procesar_trabajo_listo_sucursal(
     order_id = _resolver_order_id(payload)
     monto = payload.get("amount_total")
 
-    if (not nro_orden or monto is None or not payload.get("partner_id")) and order_id:
-        orden = await odoo_crm.buscar_orden_por_id(order_id)
-        if orden:
-            nro_orden = nro_orden or orden.get("name")
-            monto = monto if monto is not None else orden.get("amount_total")
-            if not payload.get("partner_id") and orden.get("partner_id"):
-                payload["partner_id"] = orden["partner_id"]
-
-    nro_orden = nro_orden or "—"
+    nro_orden, monto, _ = await _completar_desde_odoo(
+        payload, order_id, nro_orden or "—", monto, necesita_monto=True,
+    )
     monto_fmt = _formatear_monto(monto)
     moneda_simbolo, monto_numero = (monto_fmt[0], monto_fmt[1:]) if monto_fmt else ("$", "—")
 
@@ -332,12 +335,10 @@ async def webhook_trabajo_listo_oficina(request: Request):
 @router.post("/odoo/enviar")
 async def enviar_desde_odoo(request: Request):
     """Recibe llamadas desde Odoo para enviar mensajes por WhatsApp."""
-    api_key = request.headers.get("X-Api-Key", "")
-    if not BRIDGE_API_KEY or api_key != BRIDGE_API_KEY:
-        raise HTTPException(status_code=401, detail="API key inválida")
+    await verificar_api_key(request)
 
     body = await request.json()
-    telefono  = "".join(c for c in body.get("telefono", "") if c.isdigit())
+    telefono  = solo_digitos(body.get("telefono", ""))
     nro_orden = body.get("nro_orden", "").strip()
     mensaje   = body.get("mensaje", "").strip()
 
