@@ -1,15 +1,14 @@
 import asyncio
+import datetime
 import logging
-import os
-import sqlite3
 
-import httpx
+import asyncpg
 
-from config import DB_PATH, TURSO_TOKEN, TURSO_URL
+from config import DATABASE_URL
 
 log = logging.getLogger(__name__)
 
-USE_TURSO = bool(TURSO_URL and TURSO_TOKEN)
+_pool: asyncpg.Pool | None = None
 
 _CREATE_TABLES = [
     """CREATE TABLE IF NOT EXISTS clientes_odoo (
@@ -17,41 +16,41 @@ _CREATE_TABLES = [
         nombre      TEXT,
         telefono    TEXT,
         email       TEXT,
-        synced_at   TEXT DEFAULT (datetime('now'))
+        synced_at   TIMESTAMPTZ DEFAULT now()
     )""",
     """CREATE TABLE IF NOT EXISTS mensajes_procesados (
         message_id   TEXT PRIMARY KEY,
-        procesado_en TEXT DEFAULT (datetime('now'))
+        procesado_en TIMESTAMPTZ DEFAULT now()
     )""",
     """CREATE TABLE IF NOT EXISTS archivos (
-        id          INTEGER PRIMARY KEY AUTOINCREMENT,
+        id          SERIAL PRIMARY KEY,
         ig_user_id  TEXT NOT NULL,
         canal       TEXT DEFAULT 'whatsapp',
         tipo        TEXT NOT NULL,
         media_id    TEXT DEFAULT '',
         url         TEXT DEFAULT '',
-        creado_en   TEXT DEFAULT (datetime('now'))
+        creado_en   TIMESTAMPTZ DEFAULT now()
     )""",
     """CREATE TABLE IF NOT EXISTS usuarios (
         ig_user_id  TEXT PRIMARY KEY,
         saludado    INTEGER DEFAULT 0,
         canal       TEXT DEFAULT 'instagram',
-        creado_en   TEXT DEFAULT (datetime('now'))
+        creado_en   TIMESTAMPTZ DEFAULT now()
     )""",
     """CREATE TABLE IF NOT EXISTS historial (
-        id          INTEGER PRIMARY KEY AUTOINCREMENT,
+        id          SERIAL PRIMARY KEY,
         ig_user_id  TEXT NOT NULL,
         rol         TEXT NOT NULL,
         contenido   TEXT NOT NULL,
-        creado_en   TEXT DEFAULT (datetime('now'))
+        creado_en   TIMESTAMPTZ DEFAULT now()
     )""",
     """CREATE TABLE IF NOT EXISTS leads (
-        id            INTEGER PRIMARY KEY AUTOINCREMENT,
+        id            SERIAL PRIMARY KEY,
         ig_user_id    TEXT NOT NULL,
         canal         TEXT DEFAULT 'instagram',
         resumen       TEXT,
         odoo_lead_id  INTEGER DEFAULT 0,
-        creado_en     TEXT DEFAULT (datetime('now'))
+        creado_en     TIMESTAMPTZ DEFAULT now()
     )""",
     """CREATE TABLE IF NOT EXISTS tareas_odoo (
         odoo_id          INTEGER PRIMARY KEY,
@@ -62,185 +61,93 @@ _CREATE_TABLES = [
         telefono         TEXT DEFAULT '',
         documento        TEXT DEFAULT '',
         sale_order_name  TEXT DEFAULT '',
-        synced_at        TEXT DEFAULT (datetime('now'))
+        synced_at        TIMESTAMPTZ DEFAULT now()
     )""",
     """CREATE TABLE IF NOT EXISTS configuracion (
         clave          TEXT PRIMARY KEY,
         valor          TEXT NOT NULL DEFAULT '',
-        actualizado_en TEXT DEFAULT (datetime('now'))
+        actualizado_en TIMESTAMPTZ DEFAULT now()
     )""",
 ]
 
-
-# ─── TURSO HTTP API ────────────────────────────────────────────────────────────
-
-def _arg(val):
-    if val is None:
-        return {"type": "null"}
-    if isinstance(val, int):
-        return {"type": "integer", "value": str(val)}
-    return {"type": "text", "value": str(val)}
-
-
-async def _turso(sql: str, args=(), silent: bool = False) -> dict:
-    stmt = {"sql": sql}
-    if args:
-        stmt["args"] = [_arg(a) for a in args]
-    async with httpx.AsyncClient() as client:
-        resp = await client.post(
-            f"{TURSO_URL}/v2/pipeline",
-            headers={"Authorization": f"Bearer {TURSO_TOKEN}"},
-            json={"requests": [{"type": "execute", "stmt": stmt}, {"type": "close"}]},
-            timeout=10,
-        )
-        if resp.status_code != 200:
-            if not silent:
-                log.error("Turso error %s — SQL: %s — Resp: %s", resp.status_code, sql[:80], resp.text[:200])
-            resp.raise_for_status()
-    result = resp.json()["results"][0]
-    if result.get("type") == "error":
-        if not silent:
-            log.error("Turso query error — SQL: %s — Error: %s", sql[:80], result.get("error"))
-        raise RuntimeError(result["error"]["message"])
-    return result["response"]["result"]
+_ALTER_COLUMNS = [
+    "ALTER TABLE usuarios ADD COLUMN IF NOT EXISTS cerrada      INTEGER DEFAULT 0",
+    "ALTER TABLE usuarios ADD COLUMN IF NOT EXISTS nombre       TEXT    DEFAULT ''",
+    "ALTER TABLE usuarios ADD COLUMN IF NOT EXISTS telefono     TEXT    DEFAULT ''",
+    "ALTER TABLE usuarios ADD COLUMN IF NOT EXISTS canonical_id TEXT    DEFAULT ''",
+    "ALTER TABLE usuarios ADD COLUMN IF NOT EXISTS email        TEXT    DEFAULT ''",
+    "ALTER TABLE usuarios ADD COLUMN IF NOT EXISTS pausado      INTEGER DEFAULT 0",
+    "ALTER TABLE archivos ADD COLUMN IF NOT EXISTS es_comprobante    INTEGER DEFAULT 0",
+    "ALTER TABLE archivos ADD COLUMN IF NOT EXISTS datos_comprobante TEXT    DEFAULT ''",
+    "ALTER TABLE usuarios ADD COLUMN IF NOT EXISTS ultima_orden_id  INTEGER DEFAULT 0",
+    "ALTER TABLE usuarios ADD COLUMN IF NOT EXISTS ultima_orden_nro TEXT    DEFAULT ''",
+]
 
 
-def _rows(result: dict) -> list[dict]:
-    cols = [c["name"] for c in result["cols"]]
-    return [
-        {col: (v["value"] if v["type"] != "null" else None) for col, v in zip(cols, row)}
-        for row in result["rows"]
-    ]
+# ─── INTERFAZ UNIFICADA (Postgres via asyncpg) ─────────────────────────────────
+
+def _pg(sql: str) -> str:
+    """Traduce placeholders estilo sqlite (`?`) a los de asyncpg (`$1, $2, ...`),
+    en orden de aparición — ninguna de las queries de este archivo usa `?` como
+    literal, así que un reemplazo secuencial simple es seguro."""
+    partes = sql.split("?")
+    resultado = partes[0]
+    for i, parte in enumerate(partes[1:], start=1):
+        resultado += f"${i}" + parte
+    return resultado
 
 
-def _last_id(result: dict) -> int:
-    return int(result.get("last_insert_rowid") or 0)
+def _normalizar(valor):
+    if isinstance(valor, (datetime.datetime, datetime.date)):
+        return valor.isoformat()
+    return valor
 
 
-# ─── SQLITE FALLBACK (desarrollo local) ───────────────────────────────────────
+def _row_a_dict(record: asyncpg.Record) -> dict:
+    return {k: _normalizar(v) for k, v in dict(record).items()}
 
-def _sqlite_init():
-    os.makedirs(os.path.dirname(DB_PATH), exist_ok=True)
-    con = sqlite3.connect(DB_PATH)
-    for sql in _CREATE_TABLES:
-        con.execute(sql)
-    con.commit()
-    con.close()
-
-
-def _sqlite_query(sql: str, args=()) -> list[dict]:
-    with sqlite3.connect(DB_PATH) as con:
-        con.row_factory = sqlite3.Row
-        rows = con.execute(sql, args).fetchall()
-    return [dict(r) for r in rows]
-
-
-def _sqlite_run(sql: str, args=()) -> int:
-    with sqlite3.connect(DB_PATH) as con:
-        cur = con.execute(sql, args)
-        con.commit()
-        return cur.lastrowid or 0
-
-
-# ─── INTERFAZ UNIFICADA ────────────────────────────────────────────────────────
 
 async def _query(sql: str, args=()) -> list[dict]:
-    if USE_TURSO:
-        return _rows(await _turso(sql, args))
-    return _sqlite_query(sql, args)
+    rows = await _pool.fetch(_pg(sql), *args)
+    return [_row_a_dict(r) for r in rows]
 
 
 async def _run(sql: str, args=()) -> int:
-    if USE_TURSO:
-        return _last_id(await _turso(sql, args))
-    return _sqlite_run(sql, args)
+    if "RETURNING id" in sql:
+        return await _pool.fetchval(_pg(sql), *args) or 0
+    await _pool.execute(_pg(sql), *args)
+    return 0
 
 
-async def _batch_run(statements: list[tuple], chunk: int = 200):
-    """Ejecuta múltiples writes en pipelines de hasta `chunk` statements."""
+async def _batch_run(statements: list[tuple]):
+    """Ejecuta múltiples writes dentro de una sola transacción."""
     if not statements:
         return
-    if USE_TURSO:
-        for i in range(0, len(statements), chunk):
-            bloque = statements[i:i + chunk]
-            requests = []
-            for sql, args in bloque:
-                stmt = {"sql": sql}
-                if args:
-                    stmt["args"] = [_arg(a) for a in args]
-                requests.append({"type": "execute", "stmt": stmt})
-            requests.append({"type": "close"})
-            async with httpx.AsyncClient() as client:
-                resp = await client.post(
-                    f"{TURSO_URL}/v2/pipeline",
-                    headers={"Authorization": f"Bearer {TURSO_TOKEN}"},
-                    json={"requests": requests},
-                    timeout=30,
-                )
-                resp.raise_for_status()
-    else:
-        with sqlite3.connect(DB_PATH) as con:
+    async with _pool.acquire() as conn:
+        async with conn.transaction():
             for sql, args in statements:
-                con.execute(sql, args)
-            con.commit()
+                await conn.execute(_pg(sql), *args)
 
 
 # ─── INIT ──────────────────────────────────────────────────────────────────────
 
 async def init_db():
-    if USE_TURSO:
-        requests = [{"type": "execute", "stmt": {"sql": sql}} for sql in _CREATE_TABLES]
-        requests.append({"type": "close"})
-        try:
-            async with httpx.AsyncClient() as client:
-                resp = await client.post(
-                    f"{TURSO_URL}/v2/pipeline",
-                    headers={"Authorization": f"Bearer {TURSO_TOKEN}"},
-                    json={"requests": requests},
-                    timeout=15,
-                )
-                resp.raise_for_status()
-            log.info("Turso DB lista: %s", TURSO_URL)
-        except Exception as e:
-            log.critical("ERROR conectando a Turso: %s — la app puede fallar", e)
-        for col_sql in [
-            "ALTER TABLE usuarios ADD COLUMN cerrada      INTEGER DEFAULT 0",
-            "ALTER TABLE usuarios ADD COLUMN nombre       TEXT    DEFAULT ''",
-            "ALTER TABLE usuarios ADD COLUMN telefono     TEXT    DEFAULT ''",
-            "ALTER TABLE usuarios ADD COLUMN canonical_id TEXT    DEFAULT ''",
-            "ALTER TABLE usuarios ADD COLUMN email        TEXT    DEFAULT ''",
-            "ALTER TABLE usuarios ADD COLUMN pausado      INTEGER DEFAULT 0",
-            "ALTER TABLE archivos ADD COLUMN es_comprobante   INTEGER DEFAULT 0",
-            "ALTER TABLE archivos ADD COLUMN datos_comprobante TEXT   DEFAULT ''",
-            "ALTER TABLE usuarios ADD COLUMN ultima_orden_id INTEGER DEFAULT 0",
-            "ALTER TABLE usuarios ADD COLUMN ultima_orden_nro TEXT    DEFAULT ''",
-        ]:
-            try:
-                await _turso(col_sql, silent=True)
-            except Exception:
-                pass  # columna ya existe
-    else:
-        log.warning("TURSO_URL/TURSO_TOKEN no configuradas — usando SQLite local (los datos se pierden en cada redeploy)")
-        _sqlite_init()
-        log.info("SQLite lista (local): %s", DB_PATH)
-        for col_sql in [
-            "ALTER TABLE usuarios ADD COLUMN cerrada      INTEGER DEFAULT 0",
-            "ALTER TABLE usuarios ADD COLUMN nombre       TEXT    DEFAULT ''",
-            "ALTER TABLE usuarios ADD COLUMN telefono     TEXT    DEFAULT ''",
-            "ALTER TABLE usuarios ADD COLUMN canonical_id TEXT    DEFAULT ''",
-            "ALTER TABLE usuarios ADD COLUMN email        TEXT    DEFAULT ''",
-            "ALTER TABLE usuarios ADD COLUMN pausado      INTEGER DEFAULT 0",
-            "ALTER TABLE archivos ADD COLUMN es_comprobante   INTEGER DEFAULT 0",
-            "ALTER TABLE archivos ADD COLUMN datos_comprobante TEXT   DEFAULT ''",
-            "ALTER TABLE usuarios ADD COLUMN ultima_orden_id INTEGER DEFAULT 0",
-            "ALTER TABLE usuarios ADD COLUMN ultima_orden_nro TEXT    DEFAULT ''",
-        ]:
-            try:
-                with sqlite3.connect(DB_PATH) as con:
-                    con.execute(col_sql)
-                    con.commit()
-            except Exception:
-                pass  # columna ya existe
+    global _pool
+    if not DATABASE_URL:
+        log.critical("DATABASE_URL no configurada — la app no puede conectar a Postgres")
+        return
+    _pool = await asyncpg.create_pool(DATABASE_URL, min_size=1, max_size=10)
+    async with _pool.acquire() as conn:
+        for sql in _CREATE_TABLES:
+            await conn.execute(sql)
+        for col_sql in _ALTER_COLUMNS:
+            await conn.execute(col_sql)
+    log.info("Postgres lista")
+
+
+async def cerrar_pool():
+    if _pool is not None:
+        await _pool.close()
 
 
 # ─── FUNCIONES DE NEGOCIO ─────────────────────────────────────────────────────
@@ -281,7 +188,7 @@ async def guardar_mensaje(user_id: str, rol: str, contenido: str, notificar_odoo
 async def guardar_lead(user_id: str, resumen: str, canal: str = "instagram",
                        odoo_lead_id: int = 0) -> int:
     lead_id = await _run(
-        "INSERT INTO leads (ig_user_id, canal, resumen, odoo_lead_id) VALUES (?, ?, ?, ?)",
+        "INSERT INTO leads (ig_user_id, canal, resumen, odoo_lead_id) VALUES (?, ?, ?, ?) RETURNING id",
         (user_id, canal, resumen, odoo_lead_id),
     )
     log.info("Lead guardado — user=%s canal=%s odoo_id=%s", user_id, canal, odoo_lead_id)
@@ -292,7 +199,7 @@ async def tiene_lead_activo(user_id: str) -> bool:
     """True si hay un lead creado en las últimas 2 horas (misma sesión)."""
     rows = await _query(
         """SELECT id FROM leads WHERE ig_user_id = ? AND odoo_lead_id > 0
-           AND creado_en > datetime('now', '-2 hours')""",
+           AND creado_en > now() - interval '2 hours'""",
         (user_id,)
     )
     return bool(rows)
@@ -379,7 +286,7 @@ async def detectar_duplicados_telefono() -> list[list[dict]]:
     pero con ig_user_id distinto — señal de que es la misma persona guardada
     con formato de teléfono distinto (con/sin código de país, etc.)."""
     grupos = await _query(
-        """SELECT substr(ig_user_id, -10) as sufijo
+        """SELECT right(ig_user_id, 10) as sufijo
            FROM usuarios
            WHERE canal = 'whatsapp' AND length(ig_user_id) >= 10
            GROUP BY sufijo
@@ -392,7 +299,7 @@ async def detectar_duplicados_telefono() -> list[list[dict]]:
                       (SELECT COUNT(*) FROM historial h WHERE h.ig_user_id = u.ig_user_id) as mensajes,
                       (SELECT MAX(creado_en) FROM historial h WHERE h.ig_user_id = u.ig_user_id) as ultimo_mensaje
                FROM usuarios u
-               WHERE u.canal = 'whatsapp' AND substr(u.ig_user_id, -10) = ?
+               WHERE u.canal = 'whatsapp' AND right(u.ig_user_id, 10) = ?
                ORDER BY mensajes DESC""",
             (g["sufijo"],),
         )
@@ -545,7 +452,7 @@ async def obtener_conversaciones_recientes(limite: int = 20, offset: int = 0, ca
 async def guardar_archivo(user_id: str, canal: str, tipo: str,
                           media_id: str = "", url: str = "") -> int:
     return await _run(
-        "INSERT INTO archivos (ig_user_id, canal, tipo, media_id, url) VALUES (?, ?, ?, ?, ?)",
+        "INSERT INTO archivos (ig_user_id, canal, tipo, media_id, url) VALUES (?, ?, ?, ?, ?) RETURNING id",
         (user_id, canal, tipo, media_id, url),
     )
 
@@ -604,7 +511,7 @@ async def upsert_clientes_odoo(clientes: list[dict]):
     statements = [
         (
             """INSERT INTO clientes_odoo (odoo_id, nombre, telefono, email, synced_at)
-               VALUES (?, ?, ?, ?, datetime('now'))
+               VALUES (?, ?, ?, ?, now())
                ON CONFLICT(odoo_id) DO UPDATE SET
                    nombre=excluded.nombre,
                    telefono=excluded.telefono,
@@ -625,13 +532,13 @@ async def listar_clientes_odoo(q: str = "", limite: int = 50, offset: int = 0) -
         return await _query(
             """SELECT odoo_id, nombre, telefono, email, synced_at FROM clientes_odoo
                WHERE nombre LIKE ? OR telefono LIKE ?
-               ORDER BY nombre COLLATE NOCASE ASC
+               ORDER BY LOWER(nombre) ASC
                LIMIT ? OFFSET ?""",
             (f"%{q}%", f"%{q}%", limite, offset),
         )
     return await _query(
         """SELECT odoo_id, nombre, telefono, email, synced_at FROM clientes_odoo
-           ORDER BY nombre COLLATE NOCASE ASC
+           ORDER BY LOWER(nombre) ASC
            LIMIT ? OFFSET ?""",
         (limite, offset),
     )
@@ -659,7 +566,7 @@ async def mensaje_ya_procesado(message_id: str) -> bool:
 
 async def marcar_mensaje_procesado(message_id: str):
     await _run(
-        "INSERT OR IGNORE INTO mensajes_procesados (message_id) VALUES (?)",
+        "INSERT INTO mensajes_procesados (message_id) VALUES (?) ON CONFLICT DO NOTHING",
         (message_id,),
     )
 
@@ -673,7 +580,7 @@ async def upsert_tareas_odoo(tareas: list[dict]):
             """INSERT INTO tareas_odoo
                    (odoo_id, task_name, nro_orden, stage, partner_name,
                     telefono, documento, sale_order_name, synced_at)
-               VALUES (?, ?, ?, ?, ?, ?, ?, ?, datetime('now'))
+               VALUES (?, ?, ?, ?, ?, ?, ?, ?, now())
                ON CONFLICT(odoo_id) DO UPDATE SET
                    stage=excluded.stage,
                    partner_name=excluded.partner_name,
@@ -764,7 +671,7 @@ async def obtener_config_todas() -> dict[str, str]:
 
 async def guardar_config(clave: str, valor: str):
     await _run(
-        """INSERT INTO configuracion (clave, valor, actualizado_en) VALUES (?, ?, datetime('now'))
+        """INSERT INTO configuracion (clave, valor, actualizado_en) VALUES (?, ?, now())
            ON CONFLICT(clave) DO UPDATE SET valor = excluded.valor, actualizado_en = excluded.actualizado_en""",
         (clave, valor),
     )

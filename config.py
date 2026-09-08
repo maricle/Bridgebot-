@@ -273,9 +273,8 @@ ODOO_NOTIFICAR_USUARIOS = [
 ]
 
 # ─── BASE DE DATOS ────────────────────────────────────────────────────────────
-TURSO_URL   = os.environ.get("TURSO_URL", "").replace("libsql://", "https://")
-TURSO_TOKEN = os.environ.get("TURSO_TOKEN", "")
-DB_PATH     = os.environ.get("DB_PATH", "/app/bridgebot.db")
+# Local: docker-compose.yml. Producción (Railway): la inyecta el plugin de Postgres.
+DATABASE_URL = os.environ.get("DATABASE_URL", "")
 
 # ─── API EXTERNA ──────────────────────────────────────────────────────────────
 # Clave para endpoints que llaman servicios externos (ej: Odoo)

@@ -1,4 +1,5 @@
 import logging
+from datetime import date
 
 from config import PALABRAS_PRECIO, areas_categorias
 from db import _query
@@ -7,6 +8,11 @@ log = logging.getLogger(__name__)
 
 
 async def obtener_analytics(desde: str, hasta: str) -> dict:
+    # asyncpg necesita date/datetime nativos para columnas TIMESTAMPTZ — un
+    # string "2026-01-01" no se castea solo como sí pasaba con SQLite/Turso.
+    desde = date.fromisoformat(desde)
+    hasta = date.fromisoformat(hasta)
+
     # Clientes nuevos por día (registrados en el período)
     rows_dias = await _query(
         """SELECT DATE(creado_en) as dia, COUNT(*) as total
@@ -64,8 +70,8 @@ async def obtener_analytics(desde: str, hasta: str) -> dict:
     pct_precio = round(len(usuarios_precio) / total_clientes * 100, 1) if total_clientes else 0
 
     return {
-        "desde":           desde,
-        "hasta":           hasta,
+        "desde":           desde.isoformat(),
+        "hasta":           hasta.isoformat(),
         "total_clientes":  total_clientes,
         "total_leads":     total_leads,
         "clientes_por_dia": [

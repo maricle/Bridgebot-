@@ -25,7 +25,7 @@ logging.getLogger("httpcore").setLevel(logging.WARNING)
 async def lifespan(app: FastAPI):
     import config as _config
     from config import ANTHROPIC_API_KEY
-    from db import init_db
+    from db import cerrar_pool, init_db
     from precios import cargar as cargar_precios
     await init_db()
     await _config.recargar_configuracion()
@@ -41,6 +41,7 @@ async def lifespan(app: FastAPI):
     t1.cancel()
     t2.cancel()
     t3.cancel()
+    await cerrar_pool()
 
 
 async def _refresh_precios_loop():
