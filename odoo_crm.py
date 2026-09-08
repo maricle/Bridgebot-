@@ -1,11 +1,14 @@
 import base64
+import contextlib
 import logging
 import re
+from typing import Any
 
 import httpx
 
 from config import (BOT_NOMBRE, MODO_DEV, ODOO_API_KEY, ODOO_DB, ODOO_DESTINOS,
                     ODOO_LOGIN, ODOO_NOTIFICAR_USUARIOS, ODOO_URL)
+from utils import solo_digitos
 
 log = logging.getLogger(__name__)
 
@@ -41,7 +44,8 @@ async def _autenticar(client: httpx.AsyncClient) -> int | None:
 
 
 async def _execute_kw(client: httpx.AsyncClient, uid: int, model: str,
-                      method: str, args: list, kwargs: dict = {}) -> any:
+                      method: str, args: list, kwargs: dict | None = None) -> Any:
+    kwargs = kwargs or {}
     resp = await client.post(
         JSONRPC_URL,
         json={
@@ -60,6 +64,26 @@ async def _execute_kw(client: httpx.AsyncClient, uid: int, model: str,
     if "error" in data:
         raise Exception(f"Odoo RPC error: {data['error']}")
     return data["result"]
+
+
+class _OdooNoDisponible(Exception):
+    """Odoo no está configurado (falta URL/API key/login) o la autenticación falló."""
+
+
+@contextlib.asynccontextmanager
+async def _sesion():
+    """Abre un cliente httpx autenticado contra Odoo.
+
+    Levanta _OdooNoDisponible si falta configuración o si falla la
+    autenticación — el caller la captura junto con Exception general para
+    loggear el motivo específico y devolver su valor por defecto."""
+    if not ODOO_URL or not ODOO_API_KEY or not ODOO_LOGIN:
+        raise _OdooNoDisponible("Odoo no configurado")
+    async with httpx.AsyncClient() as client:
+        uid = await _autenticar(client)
+        if not uid:
+            raise _OdooNoDisponible("Autenticación fallida")
+        yield client, uid
 
 
 _URL_RE = re.compile(r'https?://[^\s<>"\']+')
@@ -147,14 +171,8 @@ async def sincronizar_tareas() -> list[dict]:
       project.task → sale_order_id → sale.order.partner_id → res.partner
     (el partner_id del task suele estar vacío o ser un contacto secundario)
     """
-    if not ODOO_URL or not ODOO_API_KEY or not ODOO_LOGIN:
-        return []
     try:
-        async with httpx.AsyncClient() as client:
-            uid = await _autenticar(client)
-            if not uid:
-                return []
-
+        async with _sesion() as (client, uid):
             # Paso 1a: tareas con orden de venta desde 2026 (sin filtrar por estado aún)
             tasks_raw = await _execute_kw(
                 client, uid, "project.task", "search_read",
@@ -231,9 +249,7 @@ async def sincronizar_tareas() -> list[dict]:
             p_ref       = so.get("partner_id")
             partner     = partners.get(p_ref[0] if isinstance(p_ref, list) else 0, {})
 
-            telefono = "".join(
-                c for c in (partner.get("phone") or "") if c.isdigit()
-            )
+            telefono = solo_digitos(partner.get("phone") or "")
             stage_name = t["stage_id"][1] if isinstance(t.get("stage_id"), list) else ""
 
             m = re.match(r"^\d{4}-(\d+)", t["name"])
@@ -253,6 +269,8 @@ async def sincronizar_tareas() -> list[dict]:
         sin_tel = sum(1 for t in tareas if not t["telefono"])
         log.info("Odoo sync tareas: %d obtenidas, %d sin teléfono", len(tareas), sin_tel)
         return tareas
+    except _OdooNoDisponible:
+        return []
     except Exception as e:
         log.error("Error sincronizando tareas de Odoo: %s", e)
         return []
@@ -260,13 +278,8 @@ async def sincronizar_tareas() -> list[dict]:
 
 async def sincronizar_clientes() -> list[dict]:
     """Trae todos los res.partner con teléfono de Odoo para sync nocturno."""
-    if not ODOO_URL or not ODOO_API_KEY or not ODOO_LOGIN:
-        return []
     try:
-        async with httpx.AsyncClient() as client:
-            uid = await _autenticar(client)
-            if not uid:
-                return []
+        async with _sesion() as (client, uid):
             partners = await _execute_kw(
                 client, uid, "res.partner", "search_read",
                 [[["phone", "!=", False], ["active", "=", True]]],
@@ -274,8 +287,7 @@ async def sincronizar_clientes() -> list[dict]:
             )
         clientes = []
         for p in partners:
-            tel = p.get("phone") or ""
-            digitos = "".join(c for c in tel if c.isdigit())
+            digitos = solo_digitos(p.get("phone") or "")
             if len(digitos) >= 7:
                 clientes.append({
                     "odoo_id":  p["id"],
@@ -285,6 +297,8 @@ async def sincronizar_clientes() -> list[dict]:
                 })
         log.info("Odoo sync: %d partners con teléfono", len(clientes))
         return clientes
+    except _OdooNoDisponible:
+        return []
     except Exception as e:
         log.error("Error sincronizando clientes de Odoo: %s", e)
         return []
@@ -296,19 +310,16 @@ async def buscar_orden_por_id(order_id: int) -> dict | None:
     Se usa cuando el webhook de "trabajo listo" no manda el número de orden
     en el payload — el selector de campos del Webhook nativo de Odoo es
     limitado y a veces solo deja elegir Cliente y URL de acceso."""
-    if not ODOO_URL or not ODOO_API_KEY or not ODOO_LOGIN:
-        return None
     try:
-        async with httpx.AsyncClient() as client:
-            uid = await _autenticar(client)
-            if not uid:
-                return None
+        async with _sesion() as (client, uid):
             ordenes = await _execute_kw(
                 client, uid, "sale.order", "search_read",
                 [[["id", "=", order_id]]],
                 {"fields": ["id", "name", "amount_total", "access_url", "partner_id"], "limit": 1},
             )
             return ordenes[0] if ordenes else None
+    except _OdooNoDisponible:
+        return None
     except Exception as e:
         log.error("Error buscando orden %s en Odoo: %s", order_id, e)
         return None
@@ -319,19 +330,16 @@ async def registrar_nota(model: str, record_id: int, mensaje: str) -> bool:
     if MODO_DEV:
         log.info("MODO_DEV activo — nota NO registrada en Odoo (simulada): %s#%s", model, record_id)
         return True
-    if not ODOO_URL or not ODOO_API_KEY or not ODOO_LOGIN:
-        return False
     try:
-        async with httpx.AsyncClient() as client:
-            uid = await _autenticar(client)
-            if not uid:
-                return False
+        async with _sesion() as (client, uid):
             await _execute_kw(
                 client, uid, model, "message_post",
                 [[record_id]], {"body": mensaje},
             )
         log.info("Nota registrada en Odoo %s#%s", model, record_id)
         return True
+    except _OdooNoDisponible:
+        return False
     except Exception as e:
         log.error("Error registrando nota en Odoo (%s#%s): %s", model, record_id, e)
         return False
@@ -343,7 +351,7 @@ async def _resolver_cliente_odoo(user_id: str) -> tuple[dict, str, dict | None]:
     El cliente es None si no hay teléfono o todavía no está sincronizado."""
     from db import buscar_cliente_odoo_por_telefono, obtener_datos_cliente
     datos = await obtener_datos_cliente(user_id)
-    telefono = datos.get("telefono") or "".join(c for c in user_id if c.isdigit())
+    telefono = datos.get("telefono") or solo_digitos(user_id)
     cliente = await buscar_cliente_odoo_por_telefono(telefono) if telefono else None
     return datos, telefono, cliente
 
@@ -370,7 +378,7 @@ async def registrar_mensaje_historial(user_id: str, rol: str, contenido: str) ->
         datos, telefono, cliente = await _resolver_cliente_odoo(user_id)
         if not cliente:
             return
-        canal = datos.get("canal") or ("whatsapp" if telefono == "".join(c for c in user_id if c.isdigit()) else "")
+        canal = datos.get("canal") or ("whatsapp" if telefono == solo_digitos(user_id) else "")
         canal_nombre = "WhatsApp" if canal == "whatsapp" else "Instagram" if canal == "instagram" else (canal or "Mensaje").capitalize()
         flecha = f"{canal_nombre} ->" if rol == "user" else f"{canal_nombre} <-"
         await _registrar_nota_cliente_y_orden(user_id, cliente["odoo_id"], f"{flecha} {contenido}")
@@ -420,13 +428,8 @@ async def registrar_nota_orden(order_id: int, mensaje: str) -> bool:
     if MODO_DEV:
         log.info("MODO_DEV activo — nota NO registrada en Odoo (simulada): sale.order#%s", order_id)
         return True
-    if not ODOO_URL or not ODOO_API_KEY or not ODOO_LOGIN:
-        return False
     try:
-        async with httpx.AsyncClient() as client:
-            uid = await _autenticar(client)
-            if not uid:
-                return False
+        async with _sesion() as (client, uid):
             await _execute_kw(
                 client, uid, "sale.order", "message_post",
                 [[order_id]],
@@ -434,6 +437,8 @@ async def registrar_nota_orden(order_id: int, mensaje: str) -> bool:
             )
         log.info("Nota registrada en Odoo sale.order#%s", order_id)
         return True
+    except _OdooNoDisponible:
+        return False
     except Exception as e:
         log.error("Error registrando nota en Odoo (sale.order#%s): %s", order_id, e)
         return False
@@ -444,13 +449,8 @@ async def obtener_telefono_partner(partner_id: int) -> str:
 
     Se usa como último fallback cuando el webhook no trae el teléfono y el
     partner tampoco está (o está desactualizado) en la sync local."""
-    if not ODOO_URL or not ODOO_API_KEY or not ODOO_LOGIN:
-        return ""
     try:
-        async with httpx.AsyncClient() as client:
-            uid = await _autenticar(client)
-            if not uid:
-                return ""
+        async with _sesion() as (client, uid):
             partners = await _execute_kw(
                 client, uid, "res.partner", "search_read",
                 [[["id", "=", partner_id]]],
@@ -459,7 +459,9 @@ async def obtener_telefono_partner(partner_id: int) -> str:
         if not partners:
             return ""
         telefono = partners[0].get("phone") or partners[0].get("mobile") or ""
-        return "".join(c for c in telefono if c.isdigit())
+        return solo_digitos(telefono)
+    except _OdooNoDisponible:
+        return ""
     except Exception as e:
         log.error("Error buscando teléfono de partner %s en Odoo: %s", partner_id, e)
         return ""
@@ -471,17 +473,16 @@ async def actualizar_partner(odoo_id: int, email: str = "") -> bool:
         log.info("MODO_DEV activo — partner Odoo %s NO actualizado (simulado)", odoo_id)
         return False
 
-    if not odoo_id or not email or not ODOO_URL:
+    if not odoo_id or not email:
         return False
     try:
-        async with httpx.AsyncClient() as client:
-            uid = await _autenticar(client)
-            if not uid:
-                return False
+        async with _sesion() as (client, uid):
             await _execute_kw(client, uid, "res.partner", "write",
                               [[odoo_id], {"email": email}])
             log.info("Partner Odoo %s — email actualizado", odoo_id)
             return True
+    except _OdooNoDisponible:
+        return False
     except Exception as e:
         log.error("Error actualizando partner Odoo %s: %s", odoo_id, e)
         return False
@@ -510,10 +511,6 @@ async def crear_lead(nombre_cliente: str, telefono: str, descripcion: str,
         log.info("MODO_DEV activo — lead NO creado en Odoo (simulado): %s / %s", nombre_cliente, telefono)
         return None
 
-    if not ODOO_URL or not ODOO_API_KEY or not ODOO_LOGIN:
-        log.warning("Odoo CRM no configurado — lead no creado")
-        return None
-
     company_id, responsable_id = _resolver_destino(destino)
 
     import html as _html
@@ -532,11 +529,7 @@ async def crear_lead(nombre_cliente: str, telefono: str, descripcion: str,
     )
 
     try:
-        async with httpx.AsyncClient() as client:
-            uid = await _autenticar(client)
-            if not uid:
-                return None
-
+        async with _sesion() as (client, uid):
             vals: dict = {
                 "name": titulo,
                 "partner_name": nombre_cliente or "Sin nombre",
@@ -587,6 +580,9 @@ async def crear_lead(nombre_cliente: str, telefono: str, descripcion: str,
 
             return lead_id
 
+    except _OdooNoDisponible:
+        log.warning("Odoo CRM no disponible — lead no creado")
+        return None
     except Exception as e:
         log.error("Error creando lead en Odoo: %s", e)
         return None

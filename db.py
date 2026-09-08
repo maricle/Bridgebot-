@@ -5,6 +5,7 @@ import logging
 import asyncpg
 
 from config import DATABASE_URL
+from utils import sufijo_telefono
 
 log = logging.getLogger(__name__)
 
@@ -600,8 +601,7 @@ async def upsert_tareas_odoo(tareas: list[dict]):
 
 async def buscar_tareas_por_telefono(telefono: str) -> list[dict]:
     """Busca tareas del cliente por los últimos 10 dígitos del teléfono."""
-    digitos = "".join(c for c in telefono if c.isdigit())
-    sufijo  = digitos[-10:] if len(digitos) >= 10 else digitos
+    sufijo = sufijo_telefono(telefono)
     if not sufijo:
         return []
     return await _query(
@@ -645,8 +645,7 @@ async def buscar_tareas_por_nombre(nombre: str) -> list[dict]:
 
 async def buscar_cliente_odoo_por_telefono(telefono: str) -> dict | None:
     """Busca por los últimos 10 dígitos (ignora prefijos de país y formato)."""
-    digitos = "".join(c for c in telefono if c.isdigit())
-    sufijo  = digitos[-10:] if len(digitos) >= 10 else digitos
+    sufijo = sufijo_telefono(telefono)
     if not sufijo:
         return None
     rows = await _query(
