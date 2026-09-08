@@ -7,6 +7,13 @@ import httpx
 
 from config import (ANTHROPIC_API_KEY, PALABRAS_PRECIO, area_bloquea_precios,
                     detectar_areas, get_system_prompt, resolver_destino_odoo)
+from db import (buscar_cliente_odoo_por_telefono, buscar_usuario_por_telefono,
+                cerrar_conversacion, guardar_datos_cliente, guardar_lead,
+                guardar_mensaje, obtener_archivos, obtener_canonical_id,
+                obtener_datos_cliente, obtener_historial, tiene_lead_activo,
+                vincular_usuario)
+
+log = logging.getLogger(__name__)
 
 
 def _pide_precio(mensaje: str) -> bool:
@@ -37,13 +44,7 @@ def _extraer_nro_orden(mensaje: str) -> str:
     """Extrae el primer número de 4-6 dígitos del mensaje (posible nro de orden)."""
     m = _NRO_ORDEN_RE.search(mensaje)
     return m.group(1) if m else ""
-from db import (buscar_cliente_odoo_por_telefono, buscar_usuario_por_telefono,
-                cerrar_conversacion, guardar_datos_cliente, guardar_lead,
-                guardar_mensaje, obtener_archivos, obtener_canonical_id,
-                obtener_datos_cliente, obtener_historial, tiene_lead_activo,
-                vincular_usuario)
 
-log = logging.getLogger(__name__)
 
 EXTRACCION_PROMPT = """
 Analizá esta conversación y extraé los datos del cliente.
