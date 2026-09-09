@@ -305,3 +305,17 @@ WA_MSG_TRABAJO_LISTO = os.environ.get(
 # ajustar por env var si el nombre real aprobado difiere del default.
 WA_PLANTILLA_TRABAJO_LISTO_TALLER = os.environ.get("WA_PLANTILLA_TRABAJO_LISTO_TALLER", "trabajo_listo_taller")
 WA_PLANTILLA_TRABAJO_LISTO_OFICINA = os.environ.get("WA_PLANTILLA_TRABAJO_LISTO_OFICINA", "trabajo_listo")
+
+# ─── TELEGRAM (bot interno del equipo) ────────────────────────────────────────
+# Bot de uso interno (no atiende clientes): el comando /tarea crea un
+# project.task personal en Odoo. Un bot de Telegram distinto por cliente/rama,
+# cada uno con su propio token y configuración.
+TELEGRAM_BOT_TOKEN      = os.environ.get("TELEGRAM_BOT_TOKEN", "")
+# Secreto que Telegram devuelve en el header X-Telegram-Bot-Api-Secret-Token en
+# cada update (se configura al registrar el webhook, ver /telegram/set-webhook).
+TELEGRAM_WEBHOOK_SECRET = os.environ.get("TELEGRAM_WEBHOOK_SECRET", "")
+# Chat autorizado a usar el bot — si está vacío, no valida (no recomendado en prod).
+TELEGRAM_CHAT_ID        = os.environ.get("TELEGRAM_CHAT_ID", "")
+# Proyecto y usuario de Odoo donde se crean las tareas de /tarea.
+TELEGRAM_ODOO_PROJECT_ID = os.environ.get("TELEGRAM_ODOO_PROJECT_ID", "")
+TELEGRAM_ODOO_USER_ID    = os.environ.get("TELEGRAM_ODOO_USER_ID", "")

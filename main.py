@@ -14,6 +14,7 @@ from routers import dashboard_api
 from routers import debug as debug_router
 from routers import webhooks_meta
 from routers import webhooks_odoo
+from routers import webhooks_telegram
 
 logging.basicConfig(level=logging.INFO, format="%(levelname)s: %(message)s")
 log = logging.getLogger(__name__)
@@ -84,4 +85,5 @@ app.mount("/static", StaticFiles(directory="static"), name="static")
 app.include_router(debug_router.router)
 app.include_router(webhooks_odoo.router)
 app.include_router(webhooks_meta.router)
+app.include_router(webhooks_telegram.router)
 app.include_router(dashboard_api.router)

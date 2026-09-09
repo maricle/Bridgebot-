@@ -7,7 +7,8 @@ from typing import Any
 import httpx
 
 from config import (BOT_NOMBRE, MODO_DEV, ODOO_API_KEY, ODOO_DB, ODOO_DESTINOS,
-                    ODOO_LOGIN, ODOO_NOTIFICAR_USUARIOS, ODOO_URL)
+                    ODOO_LOGIN, ODOO_NOTIFICAR_USUARIOS, ODOO_URL,
+                    TELEGRAM_ODOO_PROJECT_ID, TELEGRAM_ODOO_USER_ID)
 from utils import solo_digitos
 
 log = logging.getLogger(__name__)
@@ -585,4 +586,30 @@ async def crear_lead(nombre_cliente: str, telefono: str, descripcion: str,
         return None
     except Exception as e:
         log.error("Error creando lead en Odoo: %s", e)
+        return None
+
+
+async def crear_tarea_personal(descripcion: str) -> int | None:
+    """Crea un project.task en el proyecto/usuario fijados por
+    TELEGRAM_ODOO_PROJECT_ID/TELEGRAM_ODOO_USER_ID — usado por el comando
+    /tarea del bot interno de Telegram (ver routers/webhooks_telegram.py)."""
+    if MODO_DEV:
+        log.info("MODO_DEV activo — tarea NO creada en Odoo (simulada): %s", descripcion)
+        return None
+    if not TELEGRAM_ODOO_PROJECT_ID:
+        log.warning("TELEGRAM_ODOO_PROJECT_ID no configurado — tarea no creada")
+        return None
+    try:
+        async with _sesion() as (client, uid):
+            vals: dict = {"name": descripcion, "project_id": int(TELEGRAM_ODOO_PROJECT_ID)}
+            if TELEGRAM_ODOO_USER_ID:
+                # project.task (Odoo 14+) usa user_ids (m2m) para los asignados.
+                vals["user_ids"] = [(6, 0, [int(TELEGRAM_ODOO_USER_ID)])]
+            task_id = await _execute_kw(client, uid, "project.task", "create", [vals])
+            log.info("Tarea personal creada en Odoo: id=%s desc=%s", task_id, descripcion[:60])
+            return task_id
+    except _OdooNoDisponible:
+        return None
+    except Exception as e:
+        log.error("Error creando tarea personal en Odoo: %s", e)
         return None
