@@ -69,6 +69,14 @@ _CREATE_TABLES = [
         valor          TEXT NOT NULL DEFAULT '',
         actualizado_en TIMESTAMPTZ DEFAULT now()
     )""",
+    """CREATE TABLE IF NOT EXISTS telegram_usuarios (
+        chat_id      TEXT PRIMARY KEY,
+        telefono     TEXT NOT NULL,
+        email        TEXT NOT NULL,
+        nombre       TEXT DEFAULT '',
+        odoo_user_id INTEGER DEFAULT 0,
+        validado_en  TIMESTAMPTZ DEFAULT now()
+    )""",
 ]
 
 _ALTER_COLUMNS = [
@@ -674,3 +682,35 @@ async def guardar_config(clave: str, valor: str):
            ON CONFLICT(clave) DO UPDATE SET valor = excluded.valor, actualizado_en = excluded.actualizado_en""",
         (clave, valor),
     )
+
+
+# ─── TELEGRAM (bot interno) ────────────────────────────────────────────────────
+
+async def telegram_usuario_registrado(chat_id: str) -> bool:
+    rows = await _query("SELECT 1 FROM telegram_usuarios WHERE chat_id = ?", (chat_id,))
+    return bool(rows)
+
+
+async def registrar_telegram_usuario(chat_id: str, telefono: str, email: str,
+                                     nombre: str = "", odoo_user_id: int = 0):
+    """Alta (o re-registro) de un chat validado contra Odoo — ver
+    odoo_crm.validar_usuario(). Solo se llama una vez por chat; a partir de
+    ahí el chat queda habilitado para usar /tarea."""
+    await _run(
+        """INSERT INTO telegram_usuarios (chat_id, telefono, email, nombre, odoo_user_id)
+           VALUES (?, ?, ?, ?, ?)
+           ON CONFLICT(chat_id) DO UPDATE SET
+               telefono = excluded.telefono, email = excluded.email,
+               nombre = excluded.nombre, odoo_user_id = excluded.odoo_user_id,
+               validado_en = now()""",
+        (chat_id, telefono, email, nombre, odoo_user_id),
+    )
+    log.info("Telegram: chat %s registrado (%s)", chat_id, nombre or email)
+
+
+async def obtener_telegram_usuario(chat_id: str) -> dict | None:
+    rows = await _query(
+        "SELECT chat_id, telefono, email, nombre, odoo_user_id FROM telegram_usuarios WHERE chat_id = ?",
+        (chat_id,),
+    )
+    return rows[0] if rows else None

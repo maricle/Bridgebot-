@@ -9,7 +9,7 @@ import httpx
 from config import (BOT_NOMBRE, MODO_DEV, ODOO_API_KEY, ODOO_DB, ODOO_DESTINOS,
                     ODOO_LOGIN, ODOO_NOTIFICAR_USUARIOS, ODOO_URL,
                     TELEGRAM_ODOO_PROJECT_ID, TELEGRAM_ODOO_USER_ID)
-from utils import solo_digitos
+from utils import solo_digitos, sufijo_telefono
 
 log = logging.getLogger(__name__)
 
@@ -589,10 +589,16 @@ async def crear_lead(nombre_cliente: str, telefono: str, descripcion: str,
         return None
 
 
-async def crear_tarea_personal(descripcion: str) -> int | None:
+async def crear_tarea_personal(descripcion: str, solicitante: str = "") -> int | None:
     """Crea un project.task en el proyecto/usuario fijados por
     TELEGRAM_ODOO_PROJECT_ID/TELEGRAM_ODOO_USER_ID — usado por el comando
-    /tarea del bot interno de Telegram (ver routers/webhooks_telegram.py)."""
+    /tarea del bot interno de Telegram (ver routers/webhooks_telegram.py).
+
+    La tarea SIEMPRE queda asignada al usuario fijo de Odoo, sin importar
+    quién la pidió por Telegram — el teléfono/correo de quien escribe solo
+    autoriza el uso del bot (ver validar_usuario), no determina el
+    responsable de la tarea. `solicitante`, si se pasa, sólo queda anotado
+    en la descripción para trazabilidad."""
     if MODO_DEV:
         log.info("MODO_DEV activo — tarea NO creada en Odoo (simulada): %s", descripcion)
         return None
@@ -605,6 +611,8 @@ async def crear_tarea_personal(descripcion: str) -> int | None:
             if TELEGRAM_ODOO_USER_ID:
                 # project.task (Odoo 14+) usa user_ids (m2m) para los asignados.
                 vals["user_ids"] = [(6, 0, [int(TELEGRAM_ODOO_USER_ID)])]
+            if solicitante:
+                vals["description"] = f"Pedido por {solicitante} vía Telegram."
             task_id = await _execute_kw(client, uid, "project.task", "create", [vals])
             log.info("Tarea personal creada en Odoo: id=%s desc=%s", task_id, descripcion[:60])
             return task_id
@@ -612,4 +620,47 @@ async def crear_tarea_personal(descripcion: str) -> int | None:
         return None
     except Exception as e:
         log.error("Error creando tarea personal en Odoo: %s", e)
+        return None
+
+
+async def validar_usuario(email: str, telefono: str) -> dict | None:
+    """Valida que `email` sea el login de un res.users real en Odoo y que su
+    teléfono/móvil coincida con `telefono` (últimos 10 dígitos) — se usa para
+    autorizar el alta de un chat de Telegram al bot interno. Solo lee, no
+    crea ni modifica nada en Odoo. None si no valida por cualquier motivo."""
+    email = (email or "").strip().lower()
+    if not email or not telefono:
+        return None
+    try:
+        async with _sesion() as (client, uid):
+            usuarios = await _execute_kw(
+                client, uid, "res.users", "search_read",
+                [[["login", "=ilike", email]]],
+                {"fields": ["id", "name", "partner_id"], "limit": 1},
+            )
+            if not usuarios:
+                return None
+            partner_ref = usuarios[0].get("partner_id")
+            partner_id = partner_ref[0] if isinstance(partner_ref, (list, tuple)) and partner_ref else None
+            if not partner_id:
+                return None
+            partners = await _execute_kw(
+                client, uid, "res.partner", "search_read",
+                [[["id", "=", partner_id]]],
+                {"fields": ["phone", "mobile"], "limit": 1},
+            )
+            if not partners:
+                return None
+            sufijo = sufijo_telefono(telefono)
+            telefonos_partner = {
+                sufijo_telefono(partners[0].get("phone") or ""),
+                sufijo_telefono(partners[0].get("mobile") or ""),
+            }
+            if not sufijo or sufijo not in telefonos_partner:
+                return None
+            return {"odoo_user_id": usuarios[0]["id"], "nombre": usuarios[0].get("name") or email}
+    except _OdooNoDisponible:
+        return None
+    except Exception as e:
+        log.error("Error validando usuario de Telegram (%s): %s", email, e)
         return None
