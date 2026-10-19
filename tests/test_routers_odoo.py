@@ -179,6 +179,28 @@ async def test_trabajo_listo_taller_resuelve_partner_id_faltante_por_rpc():
     assert resultado["telefono"] == "5493794000005"
 
 
+async def test_trabajo_listo_oficina_sale_order_id_como_int_plano():
+    """La acción nativa "Enviar webhook" de Odoo manda los many2one seleccionados
+    como id plano (no [id, "nombre"]) cuando el campo no se expande — payload
+    real observado: sale_order_id=193448, partner_id=False. _resolver_order_id
+    tiene que resolverlo igual, y el resto de los datos se completan por RPC."""
+    payload = {"id": 26852, "partner_id": False, "sale_order_id": 193448, "sale_order_state": "sale"}
+    orden_fake = {
+        "id": 193448, "name": "2026-12188", "amount_total": 18595.04,
+        "partner_id": [38934, "maria prueba test"],
+    }
+    with patch("odoo_crm.buscar_orden_por_id", new=AsyncMock(return_value=orden_fake)), \
+         patch("odoo_crm.obtener_telefono_partner", new=AsyncMock(return_value="543794579133")), \
+         patch("whatsapp.enviar_plantilla", new=AsyncMock(return_value=True)) as mock_plantilla, \
+         patch("odoo_crm.registrar_nota_orden", new=AsyncMock(return_value=True)):
+        resultado = await webhooks_odoo.webhook_trabajo_listo_oficina(FakeRequest(payload))
+
+    assert resultado["ok"] is True
+    assert resultado["telefono"] == "543794579133"
+    assert resultado["orden"] == "2026-12188"
+    assert mock_plantilla.called is True
+
+
 # ─── /responder — enrutamiento WhatsApp vs Instagram ───────────────────────────
 
 async def test_responder_usa_whatsapp_por_defecto():

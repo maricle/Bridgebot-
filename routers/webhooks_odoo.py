@@ -73,8 +73,9 @@ def _resolver_order_id(payload: dict) -> int | None:
 
     Si el payload es directamente una sale.order, es su "id". Si es una
     project.task (caso de "trabajo listo"), se toma de sale_order_id — que
-    puede venir como dict, [id, "nombre"] o ausente si el selector de campos
-    del Webhook nativo de Odoo no lo incluyó."""
+    puede venir como dict, [id, "nombre"], como id plano (así lo manda la
+    acción "Enviar webhook" nativa de Odoo cuando el campo seleccionado es
+    el many2one directo, sin expandirlo) o ausente."""
     if payload.get("_model") == "sale.order" and payload.get("id"):
         return int(payload["id"])
     sale_order = payload.get("sale_order_id")
@@ -82,6 +83,8 @@ def _resolver_order_id(payload: dict) -> int | None:
         return int(sale_order["id"])
     if isinstance(sale_order, (list, tuple)) and sale_order:
         return int(sale_order[0])
+    if isinstance(sale_order, int) and not isinstance(sale_order, bool):
+        return sale_order
     return None
 
 
