@@ -246,9 +246,13 @@ async def actualizar_ultima_orden(user_id: str, order_id: int, nro_orden: str = 
     Usa upsert (no UPDATE) porque este es a veces el primer contacto con un
     cliente nuevo — Odoo puede notificar "orden confirmada" antes de que el
     cliente le haya escrito nunca a BridgeBot, así que su fila en `usuarios`
-    todavía no existe."""
+    todavía no existe. Esta función solo la llaman los webhooks de Odoo, que
+    siempre notifican por WhatsApp — por eso fija canal='whatsapp' en el
+    INSERT (si la fila ya existía, no se toca su canal: el dato de canal de
+    un usuario que ya interactuó antes, por el canal que sea, es más
+    confiable que esta inferencia)."""
     await _run(
-        """INSERT INTO usuarios (ig_user_id, ultima_orden_id, ultima_orden_nro) VALUES (?, ?, ?)
+        """INSERT INTO usuarios (ig_user_id, canal, ultima_orden_id, ultima_orden_nro) VALUES (?, 'whatsapp', ?, ?)
            ON CONFLICT(ig_user_id) DO UPDATE SET ultima_orden_id = ?, ultima_orden_nro = ?""",
         (user_id, order_id, nro_orden, order_id, nro_orden),
     )

@@ -165,3 +165,32 @@ async def test_buscar_cliente_odoo_numero_no_encontrado():
 async def test_buscar_cliente_odoo_telefono_vacio():
     result = await db.buscar_cliente_odoo_por_telefono("")
     assert result is None
+
+
+# ─── actualizar_ultima_orden — canal del usuario nuevo ───────────────────────
+
+async def test_actualizar_ultima_orden_usuario_nuevo_queda_canal_whatsapp():
+    """Bug real: Odoo puede notificar a un teléfono que nunca le escribió antes
+    a BridgeBot — actualizar_ultima_orden crea la fila de ese usuario, y como
+    esta función solo la llaman los webhooks de Odoo (siempre WhatsApp), tiene
+    que quedar canal='whatsapp', no el default de la tabla ('instagram') —
+    sino /buscar?telefono= (que filtra por canal='whatsapp') nunca lo encuentra."""
+    telefono = f"549{uid().replace('-', '')[:10]}"
+    await db.actualizar_ultima_orden(telefono, 12345, "2026-12345")
+
+    datos = await db.obtener_datos_cliente(telefono)
+    assert datos["canal"] == "whatsapp"
+
+    encontrado = await db.buscar_usuario_por_telefono(telefono)
+    assert encontrado == telefono
+
+
+async def test_actualizar_ultima_orden_no_pisa_canal_existente():
+    """Si el usuario ya existía (ej. por Instagram), no le cambiamos el canal."""
+    user_id = uid()
+    await db.marcar_saludado(user_id, canal="instagram")
+
+    await db.actualizar_ultima_orden(user_id, 99999, "2026-99999")
+
+    datos = await db.obtener_datos_cliente(user_id)
+    assert datos["canal"] == "instagram"
