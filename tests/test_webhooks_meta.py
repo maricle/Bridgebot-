@@ -94,7 +94,8 @@ async def test_wa_mensaje_duplicado_se_ignora():
 
 
 async def test_wa_auto_respuesta_manda_saludo_sin_llamar_a_claude():
-    payload = _payload_texto_wa(_telefono(), "hola")
+    tel = _telefono()
+    payload = _payload_texto_wa(tel, "hola")
     with patch("config.AUTO_RESPUESTA", True), \
          patch("routers.webhooks_meta.generar_respuesta", new=AsyncMock(return_value="no debería llamarse")) as mock_claude, \
          patch("whatsapp.enviar_mensaje", new=AsyncMock(return_value=True)) as mock_envio:
@@ -102,6 +103,11 @@ async def test_wa_auto_respuesta_manda_saludo_sin_llamar_a_claude():
 
     assert mock_claude.called is False
     assert mock_envio.called is True
+
+    historial = await db.obtener_conversacion(tel)
+    assert any(m["rol"] == "user" and m["contenido"] == "hola" for m in historial)
+    assert any(m["rol"] == "assistant" for m in historial), \
+        "el saludo de AUTO_RESPUESTA tiene que quedar guardado en el historial"
 
 
 async def test_wa_cliente_nuevo_se_completa_con_datos_de_odoo():
@@ -120,7 +126,8 @@ async def test_wa_cliente_nuevo_se_completa_con_datos_de_odoo():
 # ─── archivos ───────────────────────────────────────────────────────────────────
 
 async def test_wa_archivo_generico_se_guarda_y_confirma():
-    payload = _payload_documento_wa(_telefono(), "media123", "application/msword")
+    tel = _telefono()
+    payload = _payload_documento_wa(tel, "media123", "application/msword")
     with patch("odoo_crm.registrar_nota", new=AsyncMock(return_value=True)), \
          patch("whatsapp.enviar_mensaje", new=AsyncMock(return_value=True)) as mock_envio:
         await webhooks_meta.procesar_whatsapp(payload)
@@ -128,3 +135,7 @@ async def test_wa_archivo_generico_se_guarda_y_confirma():
 
     assert mock_envio.called is True
     assert "Recibimos el archivo" in mock_envio.call_args.args[2]
+
+    historial = await db.obtener_conversacion(tel)
+    assert any(m["rol"] == "assistant" and "Recibimos el archivo" in m["contenido"] for m in historial), \
+        "la confirmación de archivo recibido tiene que quedar guardada en el historial"

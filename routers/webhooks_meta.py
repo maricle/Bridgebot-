@@ -118,11 +118,16 @@ async def _procesar_mensaje_canal(data: dict, canal: _Canal):
 
                 log.info("%s: %s archivo(s) guardado(s) para %s", prefijo, len(archivos), sender_arch)
                 if hay_comprobante:
-                    async with httpx.AsyncClient() as client:
-                        await modulo.enviar_mensaje(client, sender_arch, "¡Recibimos tu comprobante de pago! 🙌 Ya quedó registrado.")
+                    texto_confirmacion = "¡Recibimos tu comprobante de pago! 🙌 Ya quedó registrado."
                 elif any(arch["tipo"] not in _TIPOS_MEDIA_SIN_RESPUESTA for arch in archivos):
+                    texto_confirmacion = "¡Recibimos el archivo! Lo vamos a adjuntar al pedido."
+                else:
+                    texto_confirmacion = ""
+                if texto_confirmacion:
                     async with httpx.AsyncClient() as client:
-                        await modulo.enviar_mensaje(client, sender_arch, "¡Recibimos el archivo! Lo vamos a adjuntar al pedido.")
+                        enviado = await modulo.enviar_mensaje(client, sender_arch, texto_confirmacion)
+                    if enviado:
+                        await guardar_mensaje(canonical, "assistant", texto_confirmacion)
             return
 
         sender_id, mensaje = modulo.extraer_mensaje(data)
@@ -156,7 +161,9 @@ async def _procesar_mensaje_canal(data: dict, canal: _Canal):
                     canonical = await obtener_canonical_id(sender_id)
                     await guardar_mensaje(canonical, "user", mensaje)
                     if cerrada or await es_usuario_nuevo(sender_id):
-                        await modulo.enviar_mensaje(client, sender_id, SALUDO)
+                        enviado = await modulo.enviar_mensaje(client, sender_id, SALUDO)
+                        if enviado:
+                            await guardar_mensaje(canonical, "assistant", SALUDO)
                         if not cerrada:
                             await marcar_saludado(sender_id, canal.nombre)
                     return
