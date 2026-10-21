@@ -93,6 +93,34 @@ async def test_wa_mensaje_duplicado_se_ignora():
     assert mock_claude.call_count == 1
 
 
+async def test_wa_bot_pausado_guarda_mensaje_y_no_responde():
+    tel = _telefono()
+    payload = _payload_texto_wa(tel, "hola, necesito un presupuesto")
+    with patch("config.BOT_PAUSADO", True), \
+         patch("routers.webhooks_meta.generar_respuesta", new=AsyncMock(return_value="no debería llamarse")) as mock_claude, \
+         patch("whatsapp.enviar_mensaje", new=AsyncMock(return_value=True)) as mock_envio:
+        await webhooks_meta.procesar_whatsapp(payload)
+
+    assert mock_claude.called is False
+    assert mock_envio.called is False
+    historial = await db.obtener_conversacion(tel)
+    assert any(m["rol"] == "user" and "presupuesto" in m["contenido"] for m in historial)
+
+
+async def test_wa_bot_pausado_no_confirma_archivo_pero_lo_guarda():
+    tel = _telefono()
+    payload = _payload_documento_wa(tel, "media999", "application/msword")
+    with patch("config.BOT_PAUSADO", True), \
+         patch("odoo_crm.registrar_nota", new=AsyncMock(return_value=True)), \
+         patch("whatsapp.enviar_mensaje", new=AsyncMock(return_value=True)) as mock_envio:
+        await webhooks_meta.procesar_whatsapp(payload)
+        await _esperar_tareas_pendientes()
+
+    assert mock_envio.called is False
+    archivos = await db.obtener_archivos(tel)
+    assert len(archivos) == 1
+
+
 async def test_wa_auto_respuesta_manda_saludo_sin_llamar_a_claude():
     tel = _telefono()
     payload = _payload_texto_wa(tel, "hola")

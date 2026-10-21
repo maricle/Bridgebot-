@@ -117,6 +117,10 @@ async def _procesar_mensaje_canal(data: dict, canal: _Canal):
                         asyncio.create_task(odoo_crm.notificar_documento_recibido(canonical))
 
                 log.info("%s: %s archivo(s) guardado(s) para %s", prefijo, len(archivos), sender_arch)
+                from config import BOT_PAUSADO
+                if BOT_PAUSADO:
+                    log.info("%s: BOT_PAUSADO activo — no se confirma el archivo a %s", prefijo, sender_arch)
+                    return
                 if hay_comprobante:
                     texto_confirmacion = "¡Recibimos tu comprobante de pago! 🙌 Ya quedó registrado."
                 elif any(arch["tipo"] not in _TIPOS_MEDIA_SIN_RESPUESTA for arch in archivos):
@@ -147,6 +151,13 @@ async def _procesar_mensaje_canal(data: dict, canal: _Canal):
             return
 
         async with _user_locks[sender_id]:
+            from config import BOT_PAUSADO
+            if BOT_PAUSADO:
+                canonical = await obtener_canonical_id(sender_id)
+                await guardar_mensaje(canonical, "user", mensaje)
+                log.info("%s: BOT_PAUSADO activo — mensaje de %s guardado sin responder", prefijo, sender_id)
+                return
+
             cerrada = await conversacion_cerrada(sender_id)
             if cerrada:
                 await resetear_cerrada(sender_id)

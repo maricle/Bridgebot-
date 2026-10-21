@@ -27,6 +27,13 @@ ANTHROPIC_API_KEY = os.environ.get("ANTHROPIC_API_KEY", "")
 AUTO_RESPUESTA = os.environ.get("AUTO_RESPUESTA", "false").lower() == "true"
 EXCLUIR_BOT    = {u.strip() for u in os.environ.get("EXCLUIR_BOT", "").split(",") if u.strip()}
 
+# Pausa global del bot conversacional (IG/WA): el mensaje del cliente se sigue
+# guardando en el historial, pero no se manda ninguna respuesta (ni saludo, ni
+# Claude, ni confirmación de archivo) ni se analiza para crear leads. No afecta
+# a los webhooks de Odoo (routers/webhooks_odoo.py) — esos siguen enviando
+# normalmente (ej. avisos de trabajo listo).
+BOT_PAUSADO = os.environ.get("BOT_PAUSADO", "false").lower() == "true"
+
 # ─── MODO DEV ─────────────────────────────────────────────────────────────────
 # Bloquea efectos externos reales (envío de WhatsApp y creación de leads en Odoo)
 # para poder probar el flujo de conversación sin impactar producción.
