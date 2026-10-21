@@ -90,14 +90,19 @@ def _resolver_order_id(payload: dict) -> int | None:
 
 async def _completar_desde_odoo(
     payload: dict, order_id: int | None, nro_orden: str, monto=None, access_url: str = "",
-    necesita_monto: bool = False, necesita_access_url: bool = False,
-) -> tuple[str, object, str]:
-    """Completa nro_orden/monto/access_url (y el partner_id del payload, in-place)
-    buscando la orden por RPC si falta algo — el selector de campos del Webhook
-    nativo de Odoo es limitado y no siempre trae todo lo necesario."""
+    necesita_monto: bool = False, necesita_access_url: bool = False, necesita_saldo: bool = False,
+) -> tuple[str, object, str, float | None]:
+    """Completa nro_orden/monto/access_url/saldo (y el partner_id del payload,
+    in-place) buscando la orden por RPC si falta algo — el selector de campos
+    del Webhook nativo de Odoo es limitado y no siempre trae todo lo necesario.
+    El saldo (x_studio_saldo) en particular NUNCA viene en el payload: vive en
+    la sale.order, no en la project.task que dispara el webhook de "trabajo
+    listo", así que si se pide (necesita_saldo) siempre se busca por RPC."""
     falta = (not nro_orden or nro_orden == "—" or not payload.get("partner_id")
              or (necesita_monto and monto is None)
-             or (necesita_access_url and not access_url))
+             or (necesita_access_url and not access_url)
+             or necesita_saldo)
+    saldo = None
     if falta and order_id:
         orden = await odoo_crm.buscar_orden_por_id(order_id)
         if orden:
@@ -107,9 +112,11 @@ async def _completar_desde_odoo(
                 monto = orden.get("amount_total")
             if necesita_access_url and not access_url:
                 access_url = orden.get("access_url") or ""
+            if necesita_saldo:
+                saldo = orden.get("x_studio_saldo")
             if not payload.get("partner_id") and orden.get("partner_id"):
                 payload["partner_id"] = orden["partner_id"]
-    return nro_orden, monto, access_url
+    return nro_orden, monto, access_url, saldo
 
 
 async def _enviar_notificacion_wa(telefono: str, mensaje: str, nro_orden: str,
@@ -218,7 +225,7 @@ async def webhook_orden_confirmada(request: Request):
     monto = payload.get("amount_total")
     access_url = payload.get("access_url") or ""
 
-    nro_orden, monto, access_url = await _completar_desde_odoo(
+    nro_orden, monto, access_url, _ = await _completar_desde_odoo(
         payload, order_id, nro_orden, monto, access_url,
         necesita_monto=True, necesita_access_url=True,
     )
@@ -258,7 +265,7 @@ async def webhook_trabajo_listo(request: Request):
     )
 
     order_id = _resolver_order_id(payload)
-    nro_orden, _, _ = await _completar_desde_odoo(payload, order_id, nro_orden or "—")
+    nro_orden, _, _, _ = await _completar_desde_odoo(payload, order_id, nro_orden or "—")
 
     telefono, nombre = await _extraer_cliente(payload)
     nombre_corto = nombre.split()[0] if nombre else "te"
@@ -288,12 +295,14 @@ async def _procesar_trabajo_listo_sucursal(
         or (sale_order.get("name") if isinstance(sale_order, dict) else None)
     )
     order_id = _resolver_order_id(payload)
-    monto = payload.get("amount_total")
 
-    nro_orden, monto, _ = await _completar_desde_odoo(
-        payload, order_id, nro_orden or "—", monto, necesita_monto=True,
+    # El saldo (x_studio_saldo, suma de amount_residual de las facturas
+    # posteadas de la orden) vive en sale.order — la project.task que dispara
+    # este webhook no lo trae nunca, así que siempre se busca por RPC.
+    nro_orden, _, _, saldo = await _completar_desde_odoo(
+        payload, order_id, nro_orden or "—", necesita_saldo=True,
     )
-    monto_fmt = _formatear_monto(monto)
+    monto_fmt = _formatear_monto(saldo)
     moneda_simbolo, monto_numero = (monto_fmt[0], monto_fmt[1:]) if monto_fmt else ("$", "—")
 
     telefono, nombre = await _extraer_cliente(payload)
@@ -302,7 +311,7 @@ async def _procesar_trabajo_listo_sucursal(
     mensaje = (
         f"Hola {nombre_corto},\n\n"
         f"Tu trabajo *{nro_orden}* ya está listo, podés pasar a retirarlo por {direccion}.\n\n"
-        f"Total de *{moneda_simbolo}{monto_numero}*.\n\n"
+        f"Saldo de *{moneda_simbolo}{monto_numero}*.\n\n"
         f"Alias :   {alias_texto}\n"
         "Enviar comprobante por favor.\n\n"
         "Gracias."

@@ -130,31 +130,35 @@ async def test_trabajo_listo_generico_envia_texto_libre():
 # ─── trabajo-listo por sucursal (Taller/Oficina) ───────────────────────────────
 
 async def test_trabajo_listo_taller_usa_su_propia_plantilla_y_direccion():
+    """El saldo (x_studio_saldo) vive en sale.order, no en el payload de la
+    project.task que dispara el webhook — siempre se busca por RPC."""
     payload = {
         "sale_order_id": {"id": 20, "name": "2026-22222"},
-        "amount_total": 15000,
         "partner_id": {"id": 3, "display_name": "Ana Gomez", "phone": "5493794000003"},
     }
-    with patch("whatsapp.enviar_plantilla", new=AsyncMock(return_value=True)) as mock_plantilla, \
+    orden_fake = {"id": 20, "name": "2026-22222", "x_studio_saldo": 15000}
+    with patch("odoo_crm.buscar_orden_por_id", new=AsyncMock(return_value=orden_fake)), \
+         patch("whatsapp.enviar_plantilla", new=AsyncMock(return_value=True)) as mock_plantilla, \
          patch("odoo_crm.registrar_nota_orden", new=AsyncMock(return_value=True)):
         resultado = await webhooks_odoo.webhook_trabajo_listo_taller(FakeRequest(payload))
 
     assert resultado["ok"] is True
     args = mock_plantilla.call_args.args
     assert args[2] == "trabajo_listo_taller"
-    nombre, nro_orden, monto, moneda = args[4]
+    nombre, nro_orden, saldo, moneda = args[4]
     assert nombre == "Ana"
-    assert monto == "15.000"
+    assert saldo == "15.000"
     assert moneda == "$"
 
 
 async def test_trabajo_listo_oficina_usa_su_propia_plantilla():
     payload = {
         "sale_order_id": {"id": 21, "name": "2026-33333"},
-        "amount_total": 8000,
         "partner_id": {"id": 4, "display_name": "Luis Diaz", "phone": "5493794000004"},
     }
-    with patch("whatsapp.enviar_plantilla", new=AsyncMock(return_value=True)) as mock_plantilla, \
+    orden_fake = {"id": 21, "name": "2026-33333", "x_studio_saldo": 8000}
+    with patch("odoo_crm.buscar_orden_por_id", new=AsyncMock(return_value=orden_fake)), \
+         patch("whatsapp.enviar_plantilla", new=AsyncMock(return_value=True)) as mock_plantilla, \
          patch("odoo_crm.registrar_nota_orden", new=AsyncMock(return_value=True)):
         resultado = await webhooks_odoo.webhook_trabajo_listo_oficina(FakeRequest(payload))
 
@@ -166,7 +170,7 @@ async def test_trabajo_listo_oficina_usa_su_propia_plantilla():
 async def test_trabajo_listo_taller_resuelve_partner_id_faltante_por_rpc():
     payload = {"sale_order_id": {"id": 30}}
     orden_fake = {
-        "id": 30, "name": "2026-44444", "amount_total": 2000,
+        "id": 30, "name": "2026-44444", "x_studio_saldo": 2000,
         "partner_id": [55, "Cliente Sin Telefono En Payload"],
     }
     with patch("odoo_crm.buscar_orden_por_id", new=AsyncMock(return_value=orden_fake)), \
@@ -179,6 +183,24 @@ async def test_trabajo_listo_taller_resuelve_partner_id_faltante_por_rpc():
     assert resultado["telefono"] == "5493794000005"
 
 
+async def test_trabajo_listo_taller_usa_saldo_no_monto_total():
+    """El mensaje y la plantilla tienen que usar x_studio_saldo (lo que falta
+    pagar), no amount_total — una orden con seña ya pagada debe mostrar el
+    saldo remanente, no el total original del pedido."""
+    payload = {"sale_order_id": {"id": 22, "name": "2026-55555"},
+               "partner_id": {"id": 6, "display_name": "Marcos Ruiz", "phone": "5493794000006"}}
+    orden_fake = {"id": 22, "name": "2026-55555", "amount_total": 20000, "x_studio_saldo": 10000}
+    with patch("odoo_crm.buscar_orden_por_id", new=AsyncMock(return_value=orden_fake)), \
+         patch("whatsapp.enviar_plantilla", new=AsyncMock(return_value=True)) as mock_plantilla, \
+         patch("odoo_crm.registrar_nota_orden", new=AsyncMock(return_value=True)) as mock_nota:
+        resultado = await webhooks_odoo.webhook_trabajo_listo_taller(FakeRequest(payload))
+
+    assert resultado["ok"] is True
+    _, _, saldo, _ = mock_plantilla.call_args.args[4]
+    assert saldo == "10.000"
+    assert "Saldo de *$10.000*" in mock_nota.call_args.args[1]
+
+
 async def test_trabajo_listo_oficina_sale_order_id_como_int_plano():
     """La acción nativa "Enviar webhook" de Odoo manda los many2one seleccionados
     como id plano (no [id, "nombre"]) cuando el campo no se expande — payload
@@ -186,7 +208,7 @@ async def test_trabajo_listo_oficina_sale_order_id_como_int_plano():
     tiene que resolverlo igual, y el resto de los datos se completan por RPC."""
     payload = {"id": 26852, "partner_id": False, "sale_order_id": 193448, "sale_order_state": "sale"}
     orden_fake = {
-        "id": 193448, "name": "2026-12188", "amount_total": 18595.04,
+        "id": 193448, "name": "2026-12188", "x_studio_saldo": 18595.04,
         "partner_id": [38934, "maria prueba test"],
     }
     with patch("odoo_crm.buscar_orden_por_id", new=AsyncMock(return_value=orden_fake)), \

@@ -316,7 +316,7 @@ async def buscar_orden_por_id(order_id: int) -> dict | None:
             ordenes = await _execute_kw(
                 client, uid, "sale.order", "search_read",
                 [[["id", "=", order_id]]],
-                {"fields": ["id", "name", "amount_total", "access_url", "partner_id"], "limit": 1},
+                {"fields": ["id", "name", "amount_total", "access_url", "partner_id", "x_studio_saldo"], "limit": 1},
             )
             return ordenes[0] if ordenes else None
     except _OdooNoDisponible:
